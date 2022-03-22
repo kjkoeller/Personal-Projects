@@ -12,3 +12,6 @@ This N-Body program uses a 4th order Runge-Kutta method that accounts for the ec
 
 # 3D Plotting
 This program is meant to answer Classical Electrodynamics John David Jackson 3rd Edition problem 1.21b where we take a look at comparing an estimated psi value and and exact psi value and my group and I plotted the problem in 2D and I personally worked to get the 3D plot working. It outputs both the estimate and exact answers in a 3D scatter plot in the same figure. The graphs are also interactive, i.e. you can change the angle of the graph for better viewing if necessary.
+
+# Lane-Emden
+Program to test the Lane-Emden equation via analytical solutions and a Runge-Kutta 4th order integration scheme
