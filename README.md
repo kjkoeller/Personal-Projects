@@ -5,7 +5,7 @@ Fun personal projects that I have tasked myself to do
 Project to calculate the most accurate airmass in time intervals of 4 minutes (60/15) as anything less is not needed. This is also supposed to show the sunset and astronomical twilight for any given day of the year.
 
 # Line Fit
-Project to fit a data set with a number of polynomial values. This program produces figures that include numerous polynomial fits to data and now plots data with a model fit and that fit's residuals in the same figure.
+This program is meant to fit any number of polynomials to really any data set but for research, O-C data. There is an output file, user entered, that allows for multiple linear regression tables to be viewed in either a text file or a latex file for paper usage. These regression tables uses a model of Ordinary Least Squares (OLD) and the method of Least Squares. This program also allows for a residual plot to be made in the same figure as the model fit and original data points.
 
 # N-Body
 This N-Body program uses a 4th order Runge-Kutta method that accounts for the eccentricity of each body. The output displays the energy of Earth and the program outputs the actual period and one that is calculated from different time steps and then outputs the error for each given time step.
