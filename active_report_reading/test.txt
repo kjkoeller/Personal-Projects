@@ -1,0 +1,42 @@
+King Size Pretzels, 41.0
+nan, 76.0
+Bottled Water, 49.0
+Candy, 38.0
+Large Drink, 60.0
+Pizza, 39.5
+Medium Drink, 51.0
+Cheese Pizza Combo, 22.5
+Bosco Sticks, 31.0
+Marinara, 37.0
+Hot Dog Combo, 35.0
+Hot Dogs 2 for $6, 34.0
+Chips, 33.0
+Bay Mug / Sports Bottle Refill , 7.0
+12oz, 7.0
+Dippin' Dots, 115.0
+Hot Dog, 22.0
+Bosco Sticks 2 for $6, 16.0
+Cheese, 15.0
+Smoothie, 54.0
+Small Drink, 31.0
+Bosco Stick Combo, 21.0
+Nachos, 56.0
+Jalapenos, 23.0
+Popcorn 2 for $3, 10.0
+Blizzard, 51.0
+Large Combo Upgrade, 27.0
+Popcorn, 19.0
+Medium/Bottled Combo , 13.0
+Upgrade, 13.0
+Resident Pass Fee, 17.0
+Resident Fee, 33.0
+Non-Resident Fee, 16.5
+Senior Non-Resident Fee, 1.5
+Bay Daily Youth Non-Res, 256.0
+Bay Daily Adult Res, 305.0
+Bay Daily Adult NRes, 236.5
+Bay Daily Youth Res, 355.0
+Bay Daily Senior/Military , 20.0
+Non-Res, 20.0
+Bay Daily Senior/Military Res, 25.0
+Bay Locker Key, 20.0
