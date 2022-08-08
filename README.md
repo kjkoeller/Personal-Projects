@@ -5,7 +5,7 @@ Fun personal projects that I have tasked myself to do
 This is a project that involves machine learning with a basic data set using Logistical Regression, SQL, and Tableau (still getting the SQL and Tableau parts worked on).
 
 ## Airmass
-Project to calculate the most accurate airmass in time intervals of 4 minutes (60/15) as anything less is not needed. This is also supposed to show the sunset and astronomical twilight for any given day of the year.
+Project to calculate the most accurate airmass in time intervals of 4 seconds (60/1000). This now shows the sunset and astronomical twilight for any given day of the year.
 
 ## Line Fit
 This program is meant to fit any number of polynomials to really any data set but for research, O-C data. There is an output file, user entered, that allows for multiple linear regression tables to be viewed in either a text file or a latex file for paper usage. These regression tables uses a model of Ordinary Least Squares (OLD) and the method of Least Squares. This program also allows for a residual plot to be made in the same figure as the model fit and original data points.
