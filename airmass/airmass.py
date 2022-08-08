@@ -3,14 +3,15 @@ Find the airmass of numerous targets given their RA and DEC and a locations lati
 
 Author: Kyle Koeller
 Date Created: March 15, 2019
+Last Updated: August 7, 2022
 """
 
+import datetime
 import math as mt
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from pysolar.solar import *
-import datetime
 
 
 def main():
@@ -22,7 +23,7 @@ def main():
 
     file = "Airmass_targets.txt"
     df = pd.read_csv(file, header=None, delim_whitespace=True, skiprows=3, nrows=4)
-    
+
     # define the date and time zone from the text file read in
     date = df[1][0]
     time_zone = df[1][1]
@@ -48,8 +49,8 @@ def main():
 
     # line_style or line_color for either a line plot or a scatter plot respectively
     line_style = [(0, (1, 10)), (0, (1, 1)), (0, (5, 10)), (0, (5, 5)), (0, (5, 1)),
-                       (0, (3, 10, 1, 10)), (0, (3, 5, 1, 5)), (0, (3, 1, 1, 1)), (0, (3, 5, 1, 5, 1, 5)),
-                       (0, (3, 10, 1, 10, 1, 10)), (0, (3, 1, 1, 1, 1, 1))]
+                  (0, (3, 10, 1, 10)), (0, (3, 5, 1, 5)), (0, (3, 1, 1, 1)), (0, (3, 5, 1, 5, 1, 5)),
+                  (0, (3, 10, 1, 10, 1, 10)), (0, (3, 1, 1, 1, 1, 1))]
     line_color = ["red", "blue", "orange", "black", "green", "purple", "brown", "black", "grey"]
 
     # call the function airmass for the length of the 'name' list defined above to get each targets airmass at given
@@ -62,11 +63,12 @@ def main():
 
     # produce plot for airmass
     plt.ylim(lower_lim, upper_lim)
-    plt.yticks(np.arange(lower_lim, upper_lim+0.1, 0.25))
+    plt.yticks(np.arange(lower_lim, upper_lim + 0.1, 0.25))
     # noinspection PyArgumentList
 
-    sunset, twilight = solar_altitude(observe_times, date, Lat, Long)
-    print(twilight, sunset)
+    # sunset, twilight = height_sun(date, Lat, Long, observe_times)
+    twilight, sunset = solar_altitude(observe_times, date, Lat, Long)
+    # print(twilight, sunset)
 
     # noinspection PyArgumentList
     plt.xticks(np.arange(observe_times.min(), observe_times.max(), 1))
@@ -104,12 +106,11 @@ def main():
 def GST(date):
     """
     Meant to find the Greenwhich Sidereal Time (GST)
-
     :param date: Time of day
     :return: returns the GST for the day of and the day after
     """
     date_list = date.split("/")
-    # number_days = int((275*int(date_list[0]))/9)-(2*int(int(date_list[0])+9)/12)+int(date_list[1])-29
+    # number_days = int((275*int(date_list[0]))/9)-(2*int((int(date_list[0])+9)/12))+int(date_list[1])-29
 
     A = int(int(date_list[2]) / 100)
     B = 2 - A + int(A / 4)
@@ -130,9 +131,9 @@ def GST(date):
     d_2 = (mt.ceil(c_2 / 86400) * 86400) - c_2
 
     gst_1 = ((6 + ((41 + (50.54841 / 60)) / 60)) + (d_1 / 3600)) + (
-            (nutation_long_1 / 15) * mt.cos(mt.radians(true_obliquity_1)))-24
+            (nutation_long_1 / 15) * mt.cos(mt.radians(true_obliquity_1))) - 24
     gst_2 = ((6 + ((41 + (50.54841 / 60)) / 60)) + (d_2 / 3600)) + (
-            (nutation_long_2 / 15) * mt.cos(mt.radians(true_obliquity_2)))-24
+            (nutation_long_2 / 15) * mt.cos(mt.radians(true_obliquity_2))) - 24
 
     return gst_1, gst_2
 
@@ -140,7 +141,6 @@ def GST(date):
 def t_obliquity(T_factor_1, T_factor_2):
     """
     Finds the true obliquity and the long nutation for day 1 and 2
-
     :param T_factor_1: t factor value for day 1
     :param T_factor_2: t factor value for day 2
     :return: returns the true obliquity and nutation fot day 1 and 2
@@ -162,7 +162,7 @@ def t_obliquity(T_factor_1, T_factor_2):
     obliquity_1 = (9.2 / 3600) * mt.cos(mt.radians(ohm_1)) + (0.57 / 3600) * mt.cos(mt.radians(2 * L_1)) + (
             0.1 / 3600) * mt.cos(mt.radians(2 * L_prime_1)) - (0.09 / 3600) * mt.cos(mt.radians(2 * ohm_1))
     obliquity_2 = (9.2 / 3600) * mt.cos(mt.radians(ohm_2)) + (0.57 / 3600) * mt.cos(mt.radians(2 * L_2)) + (
-                0.1 / 3600) * mt.cos(mt.radians(2 * L_prime_2)) - (0.09 / 3600) * mt.cos(mt.radians(2 * ohm_2))
+            0.1 / 3600) * mt.cos(mt.radians(2 * L_prime_2)) - (0.09 / 3600) * mt.cos(mt.radians(2 * ohm_2))
 
     mean_obliquity_1 = 23 + ((26 + (21.448 / 60)) / 60) - (46.815 / 3600) * T_factor_1 - (0.00059 / 3600) * (
             T_factor_1 ** 2) + (0.001813 / 3600) * (T_factor_1 ** 3)
@@ -296,23 +296,48 @@ def solar_altitude(observe_times, date, lat, long):
     count = 0
     for i in observe_times:
         if i < 0:
-            d = datetime.datetime(int(date_list[2]), int(date_list[0]), int(date_list[1]), -int(i),
-                                  np.absolute(int((i-int(i))*60)), 0, 0, tzinfo=datetime.timezone.utc)
+            if int(i) + 23 <= 24:
+                d = datetime.datetime(int(date_list[2]), int(date_list[0]), int(date_list[1]), int(i) + 23,
+                                      np.absolute(int((i - int(i)) * 60)), 0, 0, tzinfo=datetime.timezone.utc)
+            else:
+                d = datetime.datetime(int(date_list[2]), int(date_list[0]), int(date_list[1]), -int(i),
+                                      np.absolute(int((i - int(i)) * 60)), 0, 0, tzinfo=datetime.timezone.utc)
         else:
-            d = datetime.datetime(int(date_list[2]), int(date_list[0]), int(date_list[1])+1, int(i),
-                                  np.absolute(int((i-int(i))*60)), 0, 0, tzinfo=datetime.timezone.utc)
+            d = datetime.datetime(int(date_list[2]), int(date_list[0]), int(date_list[1]) + 1, int(i),
+                                  np.absolute(int((i - int(i)) * 60)), 0, 0, tzinfo=datetime.timezone.utc)
         alt = get_altitude(lat_decimal, long_decimal, d)
         count += 1
-        print(d)
 
         if -2 <= alt <= 2:
             sunset = i
         elif -16 >= alt <= -20:
             twilight = i
 
-    print(twilight, sunset)
+    return sunset - 12, twilight - 12
 
-    return sunset, twilight
+
+def splitter(a):
+    """
+    Splits the truncated colon Lat and Long into decimal forms
+
+    :param a: latitude and longitude value
+    :return: decimal version of lat and long
+    """
+    # makes the coordinate string into a decimal number from the text file
+    count = 0
+    if "-" in a:
+        a = a.replace("-", "")
+        count = 1
+    new = a.split(":")
+    num1 = int(new[0])
+    num2 = int(new[1])
+    num3 = int(float(new[2]))
+    b = num1 + ((num2 + (num3 / 60)) / 60)
+
+    if count == 1:
+        b = b * -1
+
+    return float(b)
 
 
 if __name__ == '__main__':
