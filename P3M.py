@@ -1,206 +1,214 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Jun 21 09:01:38 2024
-
-@author: Kyle Koeller
-"""
-
 import numpy as np
+import random
 import matplotlib.pyplot as plt
-from scipy.ndimage import gaussian_filter
-from tqdm import tqdm
 
+class Particle:
+    def __init__(self, position, velocity, mass):
+        self.position = np.array(position, dtype=float)
+        self.velocity = np.array(velocity, dtype=float)
+        self.mass = mass
+        self.force = np.zeros(3, dtype=float)
 
-G = 1.0 # gravitational constant
-L = 100.0 # size of simulation box
-N_particles = 500 # number of particles
-N_grid = 64 # size of the grid for mesh calculations
-circle_radius = 1
-sigma = 2.0 # gaussian distribution standard deviation
-angular_speed = 0.1 # 10% of desired angular momentum
-
-
-def vector_pos(radius):
-    while True:
-        x = np.random.uniform(-radius, radius)
-        y = np.random.uniform(-radius, radius)
+def initialize_particles(num_particles, cloud_radius, mass, initial_velocity, angular_momentum_percentage):
+    particles = []
+    
+    for _ in range(num_particles):
+        # Randomly distribute particles within a sphere
+        r = cloud_radius * (random.random() ** (1/3))
+        theta = random.uniform(0, 2 * np.pi)
+        phi = random.uniform(0, np.pi)
         
-        r = np.sqrt(x**2 + y**2)
+        x = r * np.sin(phi) * np.cos(theta)
+        y = r * np.sin(phi) * np.sin(theta)
+        z = r * np.cos(phi)
         
-        if r <= radius:
-            break
-    
-    return x, y
-
-
-def vector_vel(n, radius):
-    t = [(np.random.uniform(-radius, radius)/10000, np.random.uniform(-radius, radius)/10000) for i in range(n)]
-    
-    x = [i[0] for i in t]
-    y = [i[1] for i in t]
-    
-    return x, y
-
-
-# particle properties
-masses = np.full(N_particles, 1/N_particles)
-
-positions = np.array([vector_pos(circle_radius) for _ in range(N_particles)])
-velocities = np.zeros((N_particles, 2))  # zero initial velocities
-
-# Center of mass correction
-x_cm = np.mean(positions[:, 0])
-y_cm = np.mean(positions[:, 1])
-
-positions[:, 0] -= x_cm
-positions[:, 1] -= y_cm
-
-# Add small random velocities
-vel_x, vel_y = vector_vel(N_particles, circle_radius)
-velocities[:, 0] = vel_x
-velocities[:, 1] = vel_y
-
-# Add controlled angular momentum
-for i in range(N_particles):
-    r = np.sqrt(positions[i, 0]**2 + positions[i, 1]**2)
-    if r > 0:
-        vel_perpendicular = angular_speed * np.array([-positions[i, 1], positions[i, 0]]) / r
-        velocities[i] += vel_perpendicular
-
-# Center of mass velocity correction
-vx_cmx = np.mean(velocities[:, 0])
-vy_cmy = np.mean(velocities[:, 1])
-
-velocities[:, 0] -= vx_cmx
-velocities[:, 1] -= vy_cmy
-
-r_cutoff = 0.1 * L # short-range force cutoff
-
-dt = 0.01
-T = 2
-
-
-def gravitational_forces(positions, masses):
-    N = len(positions)
-    forces = np.zeros_like(positions)
-    
-    for i in range(N):
-        for j in range(i+1, N):
-            r = positions[j] - positions[i]
-            r_mag = np.linalg.norm(r)
-            
-            if r_mag > 0:
-                f = G * masses[i] * masses[j] * r / r_mag**3
-                forces[i] += f
-                forces[j] -= f
-    return forces
-
-
-def compute_short_range_forces(positions, masses, r_cutoff):
-    N = len(positions)
-    forces = np.zeros_like(positions)
-    
-    for i in range(N):
-        for j in range(i+1, N):
-            r = positions[j] - positions[i]
-            r_mag = np.linalg.norm(r)
-            
-            if r_mag < r_cutoff:
-                f = G * masses[i] * masses[j] * r / r_mag**3
-                forces[i] += f
-                forces[j] += f
-    return forces
-
-
-def compute_long_range_forces(positions, masses, L, N_grid):
-    # Create a grid for potential calculation
-    rho = np.zeros((N_grid, N_grid))
-    grid_spacing = L / N_grid
-    
-    # assign masses to the grid using CIC (Cloud-in-cell) method
-    for pos, mass in zip(positions, masses):
-        i = int((pos[0] + L/2) // grid_spacing)
-        j = int((pos[1] + L/2) // grid_spacing)
+        position = [x, y, z]
         
-        dx = ((pos[0] + L/2) % grid_spacing) / grid_spacing
-        dy = ((pos[1] + L/2) % grid_spacing) / grid_spacing
+        # Small initial velocities with a percentage of angular momentum
+        velocity_magnitude = initial_velocity
+        velocity = np.random.normal(0, velocity_magnitude, 3)
         
-        i1, i2 = i % N_grid, (i+1) % N_grid
-        j1, j2 = j % N_grid, (j+1) % N_grid
+        # Adding angular momentum component
+        if angular_momentum_percentage > 0:
+            angular_velocity = np.cross(position, velocity) * (angular_momentum_percentage / 100)
+            velocity += angular_velocity
         
-        rho[i1, j1] += mass * (1-dx) * (1-dy)
-        rho[i2, j1] += mass * dx * (1-dy)
-        rho[i1, j2] += mass * (1-dx) * dy
-        rho[i2, j2] += mass * dx * dy
+        particles.append(Particle(position, velocity, mass))
     
-    # compute gravitation potential with Poisson's equation
-    phi = gaussian_filter(rho, sigma=1)
-    
-    # compute forces from the potential
-    forces = np.zeros_like(positions)
-    for k, pos in enumerate(positions):
-        i = int((pos[0] + L/2) // grid_spacing)
-        j = int((pos[1] + L/2) // grid_spacing)
+    return particles
+
+class Octree:
+    def __init__(self, center, size):
+        self.center = np.array(center)
+        self.size = size
+        self.children = []
+        self.particles = []
+        self.mass = 0.0
+        self.mass_center = np.zeros(3)
         
-        i1, i2 = i % N_grid, (i+1) % N_grid
-        j1, j2 = j % N_grid, (j+1) % N_grid
+    def insert(self, particle):
+        if not self.contains(particle.position):
+            return False
         
-        fx = -(phi[i2, j1] - phi[i1, j1]) / (2 * grid_spacing)
-        fy = -(phi[i1, j2] - phi[i1, j1]) / (2 * grid_spacing)
+        if len(self.children) == 0:
+            self.particles.append(particle)
+            if len(self.particles) > 1:
+                self.subdivide()
+            return True
         
-        forces[k] = masses[k] * np.array([fx, fy])
+        for child in self.children:
+            if child.insert(particle):
+                return True
+        
+        return False
     
-    return forces
-
-
-# Leap Frog method
-def integrate(positions, velocities, masses, dt, L, N_grid, r_cutoff):
-    forces = gravitational_forces(positions, masses) + \
-             compute_short_range_forces(positions, masses, r_cutoff) + \
-             compute_long_range_forces(positions, masses, L, N_grid)
+    def subdivide(self):
+        half_size = self.size / 2.0
+        quarter_size = self.size / 4.0
+        
+        offsets = [
+            np.array([ quarter_size,  quarter_size,  quarter_size]),
+            np.array([ quarter_size,  quarter_size, -quarter_size]),
+            np.array([ quarter_size, -quarter_size,  quarter_size]),
+            np.array([ quarter_size, -quarter_size, -quarter_size]),
+            np.array([-quarter_size,  quarter_size,  quarter_size]),
+            np.array([-quarter_size,  quarter_size, -quarter_size]),
+            np.array([-quarter_size, -quarter_size,  quarter_size]),
+            np.array([-quarter_size, -quarter_size, -quarter_size]),
+        ]
+        
+        self.children = [Octree(self.center + offset, half_size) for offset in offsets]
+        
+        for particle in self.particles:
+            for child in self.children:
+                if child.insert(particle):
+                    break
+        
+        self.particles = []
     
-    # update velocities by half step
-    velocities_half_step = velocities + 0.5 * (forces/masses[:, np.newaxis]) * dt
-    # update positions by full step
-    positions += velocities_half_step * dt
-
-    forces = gravitational_forces(positions, masses) + \
-             compute_short_range_forces(positions, masses, r_cutoff) + \
-             compute_long_range_forces(positions, masses, L, N_grid)
+    def contains(self, point):
+        return all(abs(point - self.center) <= self.size / 2)
     
-    # recompute velocities by another half step and keep positions within bounds
-    velocities = velocities_half_step + 0.5 * (forces / masses[:, np.newaxis]) * dt
+    def compute_mass_distribution(self):
+        if len(self.children) == 0:
+            if len(self.particles) == 1:
+                self.mass = self.particles[0].mass
+                self.mass_center = self.particles[0].position
+        else:
+            self.mass = 0.0
+            self.mass_center = np.zeros(3)
+            for child in self.children:
+                child.compute_mass_distribution()
+                self.mass += child.mass
+                self.mass_center += child.mass * child.mass_center
+            if self.mass > 0:
+                self.mass_center /= self.mass
+
+def compute_force(tree, particle, theta=0.5, G=1.0):
+    if len(tree.children) == 0:
+        if len(tree.particles) == 1 and tree.particles[0] is particle:
+            return np.zeros(3)
+        else:
+            direction = tree.mass_center - particle.position
+            distance = np.linalg.norm(direction)
+            if distance == 0:
+                return np.zeros(3)
+            force_magnitude = G * particle.mass * tree.mass / (distance ** 2)
+            return force_magnitude * direction / distance
+    else:
+        direction = tree.mass_center - particle.position
+        distance = np.linalg.norm(direction)
+        if distance == 0:
+            return np.zeros(3)
+        
+        if tree.size / distance < theta:
+            force_magnitude = G * particle.mass * tree.mass / (distance ** 2)
+            return force_magnitude * direction / distance
+        else:
+            force = np.zeros(3)
+            for child in tree.children:
+                force += compute_force(child, particle, theta, G)
+            return force
+
+def update_forces(particles, tree, theta=0.5, G=1.0):
+    for particle in particles:
+        particle.force = compute_force(tree, particle, theta, G)
+
+def leapfrog_integration(particles, dt, theta=0.5, G=1.0):
+    for particle in particles:
+        particle.velocity += 0.5 * particle.force * dt / particle.mass
+        particle.position += particle.velocity * dt
+
+    tree = Octree(center=[0, 0, 0], size=2 * max(np.linalg.norm(p.position) for p in particles))
+    for particle in particles:
+        tree.insert(particle)
     
-    return positions, velocities
-
-
-plt.figure(figsize=(8,6))
-plt.scatter(positions[:, 0], positions[:, 1], s=0.75)
-plt.xlim(-circle_radius, circle_radius)
-plt.ylim(-circle_radius, circle_radius)
-plt.gca().set_aspect("equal")
-plt.xlabel('x')
-plt.ylabel('y')
-plt.grid(True)
-plt.xlim(-2,2)
-plt.ylim(-2,2)
-plt.show()
-
-positions_history = []
-num_steps = int(T/dt)
-
-for t in tqdm(range(num_steps + 1), desc="Integrating"):
-    positions_history.append(positions.copy())
-    positions, velocities = integrate(positions, velocities, masses, dt, L, N_grid, r_cutoff)
+    tree.compute_mass_distribution()
+    update_forces(particles, tree, theta, G)
     
-    plt.figure(figsize=(8,6))
-    plt.scatter(positions[:, 0], positions[:, 1], s=0.75)
-    plt.xlim(-circle_radius, circle_radius)
-    plt.ylim(-circle_radius, circle_radius)
-    plt.gca().set_aspect("equal")
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.grid(True)
-    plt.xlim(-2,2)
-    plt.ylim(-2,2)
+    for particle in particles:
+        particle.velocity += 0.5 * particle.force * dt / particle.mass
+
+def visualize_particles(particles, step):
+    fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+
+    xs = [p.position[0] for p in particles]
+    ys = [p.position[1] for p in particles]
+    zs = [p.position[2] for p in particles]
+    
+    # XY plane
+    axs[0].scatter(xs, ys, s=1)
+    axs[0].set_xlim([-20, 20])
+    axs[0].set_ylim([-20, 20])
+    axs[0].set_xlabel('X')
+    axs[0].set_ylabel('Y')
+    axs[0].set_title('XY Plane')
+
+    # XZ plane
+    axs[1].scatter(xs, zs, s=1)
+    axs[1].set_xlim([-20, 20])
+    axs[1].set_ylim([-20, 20])
+    axs[1].set_xlabel('X')
+    axs[1].set_ylabel('Z')
+    axs[1].set_title('XZ Plane')
+
+    # YZ plane
+    axs[2].scatter(ys, zs, s=1)
+    axs[2].set_xlim([-20, 20])
+    axs[2].set_ylim([-20, 20])
+    axs[2].set_xlabel('Y')
+    axs[2].set_ylabel('Z')
+    axs[2].set_title('YZ Plane')
+
+    plt.suptitle(f"Step {step}")
     plt.show()
+
+def simulate(num_particles, cloud_radius, mass, initial_velocity, angular_momentum_percentage, num_steps, dt, theta=0.5, G=1.0):
+    particles = initialize_particles(num_particles, cloud_radius, mass, initial_velocity, angular_momentum_percentage)
+    
+    tree = Octree(center=[0, 0, 0], size=2 * cloud_radius)
+    for particle in particles:
+        tree.insert(particle)
+    
+    tree.compute_mass_distribution()
+    update_forces(particles, tree, theta, G)
+    
+    for step in range(num_steps):
+        leapfrog_integration(particles, dt, theta, G)
+        
+        # Visualize particles
+        if step % 10 == 0:  # Adjust this value to visualize at desired intervals
+            visualize_particles(particles, step)
+    
+    return particles
+
+# Example usage
+num_particles = 1000
+cloud_radius = 10.0
+particle_mass = 1.0
+initial_velocity = 0.1
+angular_momentum_percentage = 5.0
+num_steps = 100
+dt = 0.01
+
+particles = simulate(num_particles, cloud_radius, particle_mass, initial_velocity, angular_momentum_percentage, num_steps, dt)
