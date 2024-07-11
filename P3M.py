@@ -16,20 +16,8 @@ L = 100.0 # size of simulation box
 N_particles = 500 # number of particles
 N_grid = 64 # size of the grid for mesh calculations
 circle_radius = 1
-sigma = 2.0 # gaussion distribution standard deviation
-angular_speed = 0
-
-
-def pos(n, radius):
-    points = []
-    phi = np.pi * (3 - np.sqrt(5))
-    for i in range(n):
-        r = radius * np.sqrt(i +0.5)/np.sqrt(n)
-        theta = phi * i
-        x = r*np.cos(theta)
-        y = r*np.sin(theta)
-        points.append((x,y))
-    return np.array(points)
+sigma = 2.0 # gaussian distribution standard deviation
+angular_speed = 0.1 # 10% of desired angular momentum
 
 
 def vector_pos(radius):
@@ -51,71 +39,40 @@ def vector_vel(n, radius):
     x = [i[0] for i in t]
     y = [i[1] for i in t]
     
-    return x ,y
+    return x, y
+
 
 # particle properties
 masses = np.full(N_particles, 1/N_particles)
 
-positions = []
-for i in range(0, N_particles):
-    positions.append(vector_pos(circle_radius))
-    
-x_cm = []
-y_cm = []
+positions = np.array([vector_pos(circle_radius) for _ in range(N_particles)])
+velocities = np.zeros((N_particles, 2))  # zero initial velocities
 
+# Center of mass correction
+x_cm = np.mean(positions[:, 0])
+y_cm = np.mean(positions[:, 1])
+
+positions[:, 0] -= x_cm
+positions[:, 1] -= y_cm
+
+# Add small random velocities
+vel_x, vel_y = vector_vel(N_particles, circle_radius)
+velocities[:, 0] = vel_x
+velocities[:, 1] = vel_y
+
+# Add controlled angular momentum
 for i in range(N_particles):
-    x_cm.append(positions[i][0])
-    y_cm.append(positions[i][1])
+    r = np.sqrt(positions[i, 0]**2 + positions[i, 1]**2)
+    if r > 0:
+        vel_perpendicular = angular_speed * np.array([-positions[i, 1], positions[i, 0]]) / r
+        velocities[i] += vel_perpendicular
 
-x_cmx = 0
-y_cmy = 0
-tot_m = 0
-for i in range(0, N_particles):
-    x_cmx += masses[i] * x_cm[i]
-    y_cmy += masses[i] * y_cm[i]
-    
-    tot_m += masses[i]
+# Center of mass velocity correction
+vx_cmx = np.mean(velocities[:, 0])
+vy_cmy = np.mean(velocities[:, 1])
 
-x_cmx /= tot_m
-y_cmy /= tot_m
-
-final_pos = []
-
-for i in range(len(positions)):
-    x = positions[i][0] - x_cmx
-    y = positions[i][1] - y_cmy
-    
-    final_pos.append((x,y))
-
-rotation_vel = []
-vel_x , vel_y = vector_vel(N_particles, circle_radius)
-
-for j in range(N_particles):
-    final_velx = vel_x[j] + final_pos[j][1]
-    final_vely = vel_y[j] - final_pos[j][0]
-    
-    rotation_vel.append((final_velx, final_vely))
-
-vx_cmx = 0
-vy_cmy = 0
-
-for i in range(0, N_particles):
-    vx_cmx += masses[i] * rotation_vel[i][0]
-    vy_cmy += masses[i] * rotation_vel[i][1]
-
-vx_cmx /= tot_m
-vy_cmy /= tot_m
-
-final_vel = []
-
-for i in range(len(positions)):
-    vx = rotation_vel[i][0] - vx_cmx
-    vy = rotation_vel[i][1] - vy_cmy
-    
-    final_vel.append((vx,vy))
-
-positions = np.array(final_pos)
-velocities = np.array(final_vel)
+velocities[:, 0] -= vx_cmx
+velocities[:, 1] -= vy_cmy
 
 r_cutoff = 0.1 * L # short-range force cutoff
 
@@ -188,8 +145,8 @@ def compute_long_range_forces(positions, masses, L, N_grid):
         i1, i2 = i % N_grid, (i+1) % N_grid
         j1, j2 = j % N_grid, (j+1) % N_grid
         
-        fx = -(phi[i2, j1] - phi[i1, j1]) / (2* grid_spacing)
-        fy = -(phi[i1, j2] - phi[i1, j1]) / (2* grid_spacing)
+        fx = -(phi[i2, j1] - phi[i1, j1]) / (2 * grid_spacing)
+        fy = -(phi[i1, j2] - phi[i1, j1]) / (2 * grid_spacing)
         
         forces[k] = masses[k] * np.array([fx, fy])
     
@@ -198,23 +155,27 @@ def compute_long_range_forces(positions, masses, L, N_grid):
 
 # Leap Frog method
 def integrate(positions, velocities, masses, dt, L, N_grid, r_cutoff):
-    forces = gravitational_forces(positions, masses)
+    forces = gravitational_forces(positions, masses) + \
+             compute_short_range_forces(positions, masses, r_cutoff) + \
+             compute_long_range_forces(positions, masses, L, N_grid)
     
     # update velocities by half step
     velocities_half_step = velocities + 0.5 * (forces/masses[:, np.newaxis]) * dt
     # update positions by full step
     positions += velocities_half_step * dt
 
-    forces = gravitational_forces(positions, masses)
+    forces = gravitational_forces(positions, masses) + \
+             compute_short_range_forces(positions, masses, r_cutoff) + \
+             compute_long_range_forces(positions, masses, L, N_grid)
     
     # recompute velocities by another half step and keep positions within bounds
-    velocities = velocities_half_step + 0.5*(forces / masses[:, np.newaxis]) * dt
+    velocities = velocities_half_step + 0.5 * (forces / masses[:, np.newaxis]) * dt
     
     return positions, velocities
 
 
 plt.figure(figsize=(8,6))
-plt.scatter(positions[: , 0], positions[: , 1], s=0.75)
+plt.scatter(positions[:, 0], positions[:, 1], s=0.75)
 plt.xlim(-circle_radius, circle_radius)
 plt.ylim(-circle_radius, circle_radius)
 plt.gca().set_aspect("equal")
@@ -233,7 +194,7 @@ for t in tqdm(range(num_steps + 1), desc="Integrating"):
     positions, velocities = integrate(positions, velocities, masses, dt, L, N_grid, r_cutoff)
     
     plt.figure(figsize=(8,6))
-    plt.scatter(positions[: , 0], positions[: , 1], s=0.75)
+    plt.scatter(positions[:, 0], positions[:, 1], s=0.75)
     plt.xlim(-circle_radius, circle_radius)
     plt.ylim(-circle_radius, circle_radius)
     plt.gca().set_aspect("equal")
@@ -243,4 +204,3 @@ for t in tqdm(range(num_steps + 1), desc="Integrating"):
     plt.xlim(-2,2)
     plt.ylim(-2,2)
     plt.show()
-
