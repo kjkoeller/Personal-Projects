@@ -1,126 +1,185 @@
 import numpy as np
+import matplotlib
+
+matplotlib.use('Agg')  # Use 'Agg' backend for non-interactive plotting
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 
 
+# Particle class definition
 class Particle:
-    def __init__(self, position, mass):
-        self.position = np.array(position)
+    def __init__(self, position, velocity, mass=1.0):
+        self.position = np.array(position, dtype=float)
+        self.velocity = np.array(velocity, dtype=float)
         self.mass = mass
-        self.potential = 0
-        self.force = np.zeros(3)
 
 
+# OctreeNode class definition
 class OctreeNode:
-    def __init__(self, center, size):
+    def __init__(self, center, half_width, depth=0, max_depth=10):
         self.center = np.array(center)
-        self.size = size
-        self.children = []
-        self.particles = []
-        self.multipole = np.zeros(10)  # Example: monopole, dipole, quadrupole terms
-        self.local_expansion = np.zeros(10)  # Similar structure as multipole for local expansion
+        self.half_width = half_width
+        self.particle = None
+        self.children = [None] * 8
+        self.mass = 0.0
+        self.center_of_mass = np.zeros(3)
+        self.depth = depth
+        self.max_depth = max_depth
+
+    def is_leaf(self):
+        return all(child is None for child in self.children)
+
+    def insert(self, particle):
+        if self.is_leaf():
+            if self.particle is None:
+                self.particle = particle
+                self.mass = particle.mass
+                self.center_of_mass = particle.position
+            else:
+                if self.depth >= self.max_depth:
+                    self.combine_particle(particle)
+                else:
+                    old_particle = self.particle
+                    self.particle = None
+                    self.subdivide()
+                    self.insert_particle(old_particle)
+                    self.insert_particle(particle)
+        else:
+            self.insert_particle(particle)
+        self.update_mass_and_com(particle)
+
+    def subdivide(self):
+        half = self.half_width / 2
+        for i in range(8):
+            offset = np.array([
+                (i & 1) * half,
+                (i >> 1 & 1) * half,
+                (i >> 2 & 1) * half
+            ])
+            child_center = self.center + offset - half / 2
+            self.children[i] = OctreeNode(child_center, half, self.depth + 1, self.max_depth)
+
+    def insert_particle(self, particle):
+        index = 0
+        if particle.position[0] > self.center[0]: index |= 1
+        if particle.position[1] > self.center[1]: index |= 2
+        if particle.position[2] > self.center[2]: index |= 4
+        self.children[index].insert(particle)
+
+    def update_mass_and_com(self, particle):
+        total_mass = self.mass + particle.mass
+        self.center_of_mass = (self.center_of_mass * self.mass + particle.position * particle.mass) / total_mass
+        self.mass = total_mass
+
+    def combine_particle(self, particle):
+        self.center_of_mass = (self.center_of_mass * self.mass + particle.position * particle.mass) / (
+                    self.mass + particle.mass)
+        self.mass += particle.mass
 
 
-def build_octree(particles, center, size, max_particles_per_node):
-    node = OctreeNode(center, size)
-    if len(particles) <= max_particles_per_node:
-        node.particles = particles
+# Function to calculate force from a node
+def calculate_force_from_node(node, particle, theta, G):
+    force = np.zeros(3)
+    if node.is_leaf():
+        if node.particle is not None and node.particle is not particle:
+            r_vec = node.particle.position - particle.position
+            distance = np.linalg.norm(r_vec)
+            if distance > 0:
+                force_magnitude = G * particle.mass * node.particle.mass / distance ** 2
+                force = force_magnitude * r_vec / distance
     else:
-        half_size = size / 2
-        for dx in [-1, 1]:
-            for dy in [-1, 1]:
-                for dz in [-1, 1]:
-                    new_center = center + np.array([dx, dy, dz]) * half_size / 2
-                    child_particles = [p for p in particles if np.all(np.abs(p.position - new_center) <= half_size / 2)]
-                    if child_particles:
-                        child_node = build_octree(child_particles, new_center, half_size, max_particles_per_node)
-                        node.children.append(child_node)
-    return node
+        r_vec = node.center_of_mass - particle.position
+        distance = np.linalg.norm(r_vec)
+        if distance > 0:
+            if node.half_width / distance < theta:
+                force_magnitude = G * particle.mass * node.mass / distance ** 2
+                force = force_magnitude * r_vec / distance
+            else:
+                for child in node.children:
+                    if child is not None:
+                        force += calculate_force_from_node(child, particle, theta, G)
+    return force
 
 
-def compute_multipole_expansion(node):
-    if node.children:
-        for child in node.children:
-            compute_multipole_expansion(child)
-            node.multipole += child.multipole  # Combine child multipole expansions
-    else:
-        for p in node.particles:
-            r_vec = p.position - node.center
-            r = np.linalg.norm(r_vec)
-            node.multipole[0] += p.mass  # Monopole moment (total mass)
-            node.multipole[1:4] += p.mass * r_vec  # Dipole moment
-            node.multipole[4:10] += p.mass * np.outer(r_vec, r_vec).flatten()[:6]  # Quadrupole moment
+# Function to calculate forces for all particles using octree
+def calculate_forces_octree(root, particles, theta=0.5, G=6.67430e-11):
+    forces = [np.zeros(3) for _ in particles]
+    for i, particle in enumerate(particles):
+        forces[i] = calculate_force_from_node(root, particle, theta, G)
+    return forces
 
 
-def compute_local_expansion(node, source_node):
-    if is_far_enough(node, source_node):
-        r_vec = node.center - source_node.center
-        r = np.linalg.norm(r_vec)
-        node.local_expansion += translate_multipole_to_local(source_node.multipole, r_vec, r)
-    else:
-        for child in source_node.children:
-            compute_local_expansion(node, child)
-
-def translate_multipole_to_local(multipole, r_vec, r):
-    # Translate multipole terms to local expansion
-    # Simplified example; should include proper translation logic
-    return multipole / r**3
+# Function to build the octree
+def build_octree(particles, center, half_width, max_depth=10):
+    root = OctreeNode(center, half_width, max_depth=max_depth)
+    for particle in particles:
+        root.insert(particle)
+    return root
 
 
-def is_far_enough(node, source_node):
-    distance = np.linalg.norm(node.center - source_node.center)
-    return distance > 2 * max(node.size, source_node.size)
+# Function to update particles
+def update_particles(particles, forces, dt):
+    for i, particle in enumerate(particles):
+        particle.velocity += forces[i] * dt / particle.mass
+        particle.position += particle.velocity * dt
 
 
-def calculate_potential_and_force(node):
-    if node.children:
-        for child in node.children:
-            calculate_potential_and_force(child)
-    else:
-        for p in node.particles:
-            for other in node.particles:
-                if p != other:
-                    r_vec = p.position - other.position
-                    r = np.linalg.norm(r_vec)
-                    p.potential += other.mass / r
-                    p.force -= other.mass * r_vec / r**3
-            # Include contributions from multipole and local expansions as necessary
-            for i in range(10):
-                p.potential += node.local_expansion[i]  # Simplified for demonstration
-                p.force -= node.local_expansion[i]  # Simplified for demonstration
+# Function to run the simulation and save figures at each timestep
+def simulate(particles, num_steps, dt, half_width):
+    for step in range(num_steps):
+        fig, axs = plt.subplots(1, 3, figsize=(18, 6))
+
+        center = np.mean([p.position for p in particles], axis=0)
+        root = build_octree(particles, center, half_width, max_depth=10)
+        forces = calculate_forces_octree(root, particles)
+        update_particles(particles, forces, dt)
+
+        positions = np.array([p.position for p in particles])
+
+        # XY plane
+        axs[0].scatter(positions[:, 0], positions[:, 1], s=1)
+        axs[0].set_xlim(-2, 2)
+        axs[0].set_ylim(-2, 2)
+        axs[0].set_xlabel('X')
+        axs[0].set_ylabel('Y')
+        axs[0].set_title('XY Plane')
+
+        # XZ plane
+        axs[1].scatter(positions[:, 0], positions[:, 2], s=1)
+        axs[1].set_xlim(-2, 2)
+        axs[1].set_ylim(-2, 2)
+        axs[1].set_xlabel('X')
+        axs[1].set_ylabel('Z')
+        axs[1].set_title('XZ Plane')
+
+        # ZY plane
+        axs[2].scatter(positions[:, 2], positions[:, 1], s=1)
+        axs[2].set_xlim(-2, 2)
+        axs[2].set_ylim(-2, 2)
+        axs[2].set_xlabel('Z')
+        axs[2].set_ylabel('Y')
+        axs[2].set_title('ZY Plane')
+
+        plt.tight_layout()
+        plt.savefig(f'frame_{step:04d}.png')
+        plt.close(fig)
 
 
-def visualize_particles(particles):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    for p in particles:
-        ax.scatter(p.position[0], p.position[1], p.position[2], marker='o')
-    plt.show()
+# Function to read positions and velocities from a file
+def read_particles_from_file(filename):
+    particles = []
+    with open(filename, 'r') as file:
+        lines = file.readlines()
+        for line in lines:
+            x, y, z, vx, vy, vz = map(float, line.split())
+            position = [x, y, z]
+            velocity = [vx, vy, vz]
+            particles.append(Particle(position=position, velocity=velocity))
+    return particles
 
 
-# Example particle setup
-particles = [
-    Particle([0.1, 0.2, 0.3], 1),
-    Particle([0.4, 0.5, 0.6], 1),
-    # Add more particles as needed
-]
+# Example usage
+input_filename = 'tbini.txt'  # Replace with your input file path
+particles = read_particles_from_file(input_filename)
 
-# Build the octree
-root = build_octree(particles, center=[0, 0, 0], size=1, max_particles_per_node=4)
-
-# Compute multipole expansions
-compute_multipole_expansion(root)
-
-# Compute local expansions
-for node in root.children:
-    compute_local_expansion(node, root)
-
-# Calculate potential and forces
-calculate_potential_and_force(root)
-
-# Print results
-for p in particles:
-    print(f"Particle at {p.position} has potential {p.potential} and force {p.force}")
-
-# Visualize particles
-visualize_particles(particles)
+# Run the simulation
+simulate(particles, num_steps=100, dt=0.01, half_width=50.0)
