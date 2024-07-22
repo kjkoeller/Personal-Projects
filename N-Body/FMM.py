@@ -3,11 +3,13 @@ import matplotlib
 
 matplotlib.use('Agg')  # Use 'Agg' backend for non-interactive plotting
 import matplotlib.pyplot as plt
+import csv
+import os
 
 
 # Particle class definition
 class Particle:
-    def __init__(self, position, velocity, mass=1.0):
+    def __init__(self, position, velocity, mass=1.0/2000.0):
         self.position = np.array(position, dtype=float)
         self.velocity = np.array(velocity, dtype=float)
         self.mass = mass
@@ -101,7 +103,7 @@ def calculate_force_from_node(node, particle, theta, G):
 
 
 # Function to calculate forces for all particles using octree
-def calculate_forces_octree(root, particles, theta=0.5, G=6.67430e-11):
+def calculate_forces_octree(root, particles, theta=0.5, G=1):
     forces = [np.zeros(3) for _ in particles]
     for i, particle in enumerate(particles):
         forces[i] = calculate_force_from_node(root, particle, theta, G)
@@ -125,43 +127,52 @@ def update_particles(particles, forces, dt):
 
 # Function to run the simulation and save figures at each timestep
 def simulate(particles, num_steps, dt, half_width):
-    for step in range(num_steps):
-        fig, axs = plt.subplots(1, 3, figsize=(18, 6))
-
-        center = np.mean([p.position for p in particles], axis=0)
-        root = build_octree(particles, center, half_width, max_depth=10)
-        forces = calculate_forces_octree(root, particles)
-        update_particles(particles, forces, dt)
-
-        positions = np.array([p.position for p in particles])
-
-        # XY plane
-        axs[0].scatter(positions[:, 0], positions[:, 1], s=1)
-        axs[0].set_xlim(-2, 2)
-        axs[0].set_ylim(-2, 2)
-        axs[0].set_xlabel('X')
-        axs[0].set_ylabel('Y')
-        axs[0].set_title('XY Plane')
-
-        # XZ plane
-        axs[1].scatter(positions[:, 0], positions[:, 2], s=1)
-        axs[1].set_xlim(-2, 2)
-        axs[1].set_ylim(-2, 2)
-        axs[1].set_xlabel('X')
-        axs[1].set_ylabel('Z')
-        axs[1].set_title('XZ Plane')
-
-        # ZY plane
-        axs[2].scatter(positions[:, 2], positions[:, 1], s=1)
-        axs[2].set_xlim(-2, 2)
-        axs[2].set_ylim(-2, 2)
-        axs[2].set_xlabel('Z')
-        axs[2].set_ylabel('Y')
-        axs[2].set_title('ZY Plane')
-
-        plt.tight_layout()
-        plt.savefig(f'frame_{step:04d}.png')
-        plt.close(fig)
+    with open('particles_output.csv', mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["X", "Y", "Z", "VX", "VY", "VZ"])
+        for step in range(num_steps):
+            fig, axs = plt.subplots(1, 3, figsize=(18, 6))
+    
+            center = np.mean([p.position for p in particles], axis=0)
+            root = build_octree(particles, center, half_width, max_depth=10)
+            forces = calculate_forces_octree(root, particles)
+            update_particles(particles, forces, dt)
+    
+            positions = np.array([p.position for p in particles])
+    
+            # XY plane
+            axs[0].scatter(positions[:, 0], positions[:, 1], s=0.5)
+            axs[0].set_xlim(-2, 2)
+            axs[0].set_ylim(-2, 2)
+            axs[0].set_xlabel('X')
+            axs[0].set_ylabel('Y')
+            axs[0].set_title('XY Plane')
+    
+            # XZ plane
+            axs[1].scatter(positions[:, 0], positions[:, 2], s=0.5)
+            axs[1].set_xlim(-2, 2)
+            axs[1].set_ylim(-2, 2)
+            axs[1].set_xlabel('X')
+            axs[1].set_ylabel('Z')
+            axs[1].set_title('XZ Plane')
+    
+            # YZ plane
+            axs[2].scatter(positions[:, 1], positions[:, 2], s=0.5)
+            axs[2].set_xlim(-2, 2)
+            axs[2].set_ylim(-2, 2)
+            axs[2].set_xlabel('Y')
+            axs[2].set_ylabel('Z')
+            axs[2].set_title('YZ Plane')
+    
+            plt.tight_layout()
+            directory = "C:\\Users\\N54451\\OneDrive - NGC\\Documents\\Python Scripts\\Images\\"
+            file = os.path.join(directory, f'frame_{step:04d}.png')
+            plt.savefig(file)
+            plt.close(fig)
+            
+            for i, particle in enumerate(particles):
+                writer.writerow([particle.position[0], particle.position[1], particle.position[2],
+                                particle.velocity[0], particle.velocity[1], particle.velocity[2]])
 
 
 # Function to read positions and velocities from a file
@@ -182,4 +193,4 @@ input_filename = 'tbini.txt'  # Replace with your input file path
 particles = read_particles_from_file(input_filename)
 
 # Run the simulation
-simulate(particles, num_steps=100, dt=0.01, half_width=50.0)
+simulate(particles, num_steps=1000, dt=0.005, half_width=50.0)
