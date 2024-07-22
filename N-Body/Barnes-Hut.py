@@ -221,8 +221,8 @@ def simulate(particles, num_steps, dt, half_width, output_dir):
             axs[2].set_xlim(-2, 2)
             axs[2].set_ylim(-2, 2)
             axs[2].set_xlabel('Y')
-            axs[2].set_ylabel(‘Z’)
-axs[2].set_title(‘YZ Plane’)
+            axs[2].set_ylabel('Z')
+            axs[2].set_title('YZ Plane')
 
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, f'frame_{step:04d}.png'))
@@ -240,8 +240,8 @@ axs[2].set_title(‘YZ Plane’)
         energy_writer.writerow([step, potential_energy, kinetic_energy, total_energy])
 
 
-input_filename = ‘tbini.txt’  # Replace with your input file path
-output_dir = ‘output’  # Replace with your desired output directory
+input_filename = 'tbini.txt'  # Replace with your input file path
+output_dir = 'output'  # Replace with your desired output directory
 particles = read_particles_from_file(input_filename)
 
 simulate(particles, num_steps=1000, dt=0.005, half_width=50.0, output_dir=output_dir)
