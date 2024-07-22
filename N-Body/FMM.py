@@ -103,6 +103,28 @@ def calculate_force_from_node(node, particle, theta, G):
                         force += calculate_force_from_node(child, particle, theta, G)
     return force
 
+
+def calculate_potential_from_node(node, position, theta, G):
+    potential = 0.0
+    if node.is_leaf():
+        if node.particle is not None:
+            r_vec = node.particle.position - position
+            distance = np.linalg.norm(r_vec)
+            if distance > 0:
+                potential = -G * node.particle.mass / distance
+    else:
+        r_vec = node.center_of_mass - position
+        distance = np.linalg.norm(r_vec)
+        if distance > 0:
+            if node.half_width / distance < theta:
+                potential = -G * node.mass / distance
+            else:
+                for child in node.children:
+                    if child is not None:
+                        potential += calculate_potential_from_node(child, position, theta, G)
+    return potential
+
+
 # Function to calculate forces for all particles using octree
 def calculate_forces_octree(root, particles, theta=0.5, G=1):
     forces = [np.zeros(3) for _ in particles]
