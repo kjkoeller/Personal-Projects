@@ -138,11 +138,20 @@ def build_octree(particles, center, half_width, max_depth=10):
     for particle in particles:
         root.insert(particle)
     return root
+        
 
-# Function to update particles
 def update_particles(particles, forces, dt):
+    half_dt = 0.5*dt
     for i, particle in enumerate(particles):
-        particle.position += particle.velocity * dt/2
+        particle.velocity += forces[i] * half_dt / particle.mass
+        particle.position += particle.velocity * dt
+
+
+def update_velocities(particles, forces, dt):
+    half_dt = 0.5*dt
+    for i, particle in enumerate(particles):
+        particle.velocity += forces[i] * half_dt / particle.mass
+
 
 # Function to calculate potential energy of the system
 def calculate_potential_energy(particles, root, theta, G):
@@ -233,11 +242,17 @@ def simulate(particles, num_steps, dt, half_width, output_dir):
         angular_writer.writerow(["Time", "Angular X", "Angular Y", "Angular Z"])
         com_writer.writerow(["Time", "CoM Pos X", "CoM Pos Y", "CoM Pos Z", "CoM Vel X", "CoM Vel X", "CoM Vel X"])
         
+        # initialize forces and the tree
+        center = np.mean([p.position for p in particles], axis=0)
+        root = build_octree(particles, center, half_width, max_depth=10)
+        forces = calculate_forces_octree(root, particles)
+        
         for step in range(num_steps):
+            update_particles(particles, forces, dt)
             center = np.mean([p.position for p in particles], axis=0)
             root = build_octree(particles, center, half_width, max_depth=10)
-            update_particles(particles, dt)
             forces = calculate_forces_octree(root, particles)
+            update_velocities(particles, forces, dt)
             
             fig, axs = plt.subplots(1, 3, figsize=(18, 6))
             
@@ -293,5 +308,5 @@ input_filename = 'tbini.txt'  # Replace with your input file path
 output_dir = 'output_dir'  # Replace with your desired output directory
 particles = read_particles_from_file(input_filename)
 
-simulate(particles, num_steps=240, dt=0.005, half_width=1, output_dir=output_dir)
+simulate(particles, num_steps=22000, dt=0.0005, half_width=1, output_dir=output_dir)
 
