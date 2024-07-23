@@ -146,10 +146,10 @@ def update_particles(particles, forces, dt):
         particle.position += particle.velocity * dt
 
 # Function to calculate potential energy of the system
-def calculate_potential_energy(particles, root, theta):
+def calculate_potential_energy(particles, root, theta, G):
     potential_energy = 0.0
     for particle in particles:
-        potential = calculate_potential_from_node(root, particle.position, theta)
+        potential = calculate_potential_from_node(root, particle.position, theta, G)
         potential_energy += 0.5 * particle.mass * potential  # Factor of 0.5 to avoid double-counting
     return potential_energy
 
@@ -160,6 +160,43 @@ def calculate_kinetic_energy(particles):
         speed_squared = np.dot(particle.velocity, particle.velocity)
         kinetic_energy += 0.5 * particle.mass * speed_squared
     return kinetic_energy
+
+
+def calculate_angular_momentum(particles):
+    amvec = np.zeros(3)
+    for particle in particles:
+        amvec[0] += particle.mass * particle.position[1] * particle.velocity[2] - particle.position[2] * particle.velocity[1]
+        amvec[1] += particle.mass * particle.position[2] * particle.velocity[0] - particle.position[0] * particle.velocity[2]
+        amvec[2] += particle.mass * particle.position[0] * particle.velocity[1] - particle.position[1] * particle.velocity[0]
+    return amvec
+
+
+def calculate_energy(particles, root, theta, G):
+    ektot = 0
+    eptot = 0
+    etot = 0
+    mtot = 0
+    cmpos = np.zeros(3)
+    cmvel = np.zeros(3)
+    
+    for particle in particles:
+        mtot += particle.mass
+        potential = calculate_potential_from_node(root, particle.position, theta, G)
+        eptot += 0.5 * particle.mass * potential
+    
+    for k in range(3):
+        for particle in particles:
+            ektot += 0.5 * particle.mass * particle.velocity[k]**2
+            cmpos[k] += particle.mass * particle.position[k]
+            cmvel[k] += particle.mass * particle.velocity[k]
+        
+        cmvel[k] = cmvel[k]/mtot
+        cmpos[k] = cmpos[k]/mtot
+    
+    etot = ektot + eptot
+    
+    return eptot, ektot, etot, cmpos, cmvel
+
 
 # Function to read positions and velocities from a file
 def read_particles_from_file(filename):
@@ -173,6 +210,7 @@ def read_particles_from_file(filename):
             particles.append(Particle(position=position, velocity=velocity))
     return particles
 
+
 # Function to run the simulation and save figures and energy data at each timestep
 def simulate(particles, num_steps, dt, half_width, output_dir):
     # Create output directory if it doesn't exist
@@ -181,22 +219,28 @@ def simulate(particles, num_steps, dt, half_width, output_dir):
     # Open CSV files to write particle positions/velocities and energies
     particle_csv_filename = os.path.join(output_dir, 'particles_output.csv')
     energy_csv_filename = os.path.join(output_dir, 'energy_output.csv')
+    angular_mom_csv_filename = os.path.join(output_dir, 'angular_mom_output.csv')
+    com_csv_filename = os.path.join(output_dir, 'CoM_output.csv')
     
-    with open(particle_csv_filename, mode='w', newline='') as particle_file, open(energy_csv_filename, mode='w', newline='') as energy_file:
+    with open(particle_csv_filename, mode='w', newline='') as particle_file, open(energy_csv_filename, mode='w', newline='') as energy_file, open(angular_mom_csv_filename, mode='w', newline='') as ang_mom_file, open(com_csv_filename, mode='w', newline='') as com_file: 
         particle_writer = csv.writer(particle_file)
         energy_writer = csv.writer(energy_file)
+        angular_writer = csv.writer(ang_mom_file)
+        com_writer = csv.writer(com_file)
         
         # Write headers to the CSV files
-        particle_writer.writerow(["Step", "Particle", "X", "Y", "Z", "VX", "VY", "VZ"])
-        energy_writer.writerow(["Step", "Potential Energy", "Kinetic Energy", "Total Energy"])
+        particle_writer.writerow(["Time", "Particle", "X", "Y", "Z", "VX", "VY", "VZ"])
+        energy_writer.writerow(["Time", "Potential Energy", "Kinetic Energy", "Total Energy"])
+        angular_writer.writerow(["Time", "Angular X", "Angular Y", "Angular Z"])
+        com_writer.writerow(["Time", "CoM Pos X", "CoM Pos Y", "CoM Pos Z", "CoM Vel X", "CoM Vel X", "CoM Vel X"])
         
         for step in range(num_steps):
-            fig, axs = plt.subplots(1, 3, figsize=(18, 6))
-
             center = np.mean([p.position for p in particles], axis=0)
             root = build_octree(particles, center, half_width, max_depth=10)
             forces = calculate_forces_octree(root, particles)
             update_particles(particles, forces, dt)
+            
+            fig, axs = plt.subplots(1, 3, figsize=(18, 6))
             
             positions = np.array([p.position for p in particles])
 
@@ -223,26 +267,32 @@ def simulate(particles, num_steps, dt, half_width, output_dir):
             axs[2].set_xlabel('Y')
             axs[2].set_ylabel('Z')
             axs[2].set_title('YZ Plane')
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, f'frame_{step:04d}.png'))
-        plt.close(fig)
-
-        # Write particle positions and velocities to the CSV file
-        for i, particle in enumerate(particles):
-            particle_writer.writerow([step, i, particle.position[0], particle.position[1], particle.position[2],
-                                      particle.velocity[0], particle.velocity[1], particle.velocity[2]])
-        
-        # Calculate and write energies to the CSV file
-        potential_energy = calculate_potential_energy(particles, root, theta=0.5)
-        kinetic_energy = calculate_kinetic_energy(particles)
-        total_energy = potential_energy + kinetic_energy
-        energy_writer.writerow([step, potential_energy, kinetic_energy, total_energy])
+            
+            plt.tight_layout()
+            plt.savefig(os.path.join(output_dir, f'frame_{step:04d}.png'))
+            plt.close(fig)
+    
+            # Write particle positions and velocities to the CSV file
+            for i, particle in enumerate(particles):
+                particle_writer.writerow([step*dt, i, particle.position[0], particle.position[1], particle.position[2],
+                                          particle.velocity[0], particle.velocity[1], particle.velocity[2]])
+            
+            # Calculate and write energies to the CSV file
+            # potential_energy = calculate_potential_energy(particles, root, theta=0.5, G=1)
+            # kinetic_energy = calculate_kinetic_energy(particles)
+            # total_energy = potential_energy + kinetic_energy
+            
+            eptot, ektot, etot, cmpos, cmvel = calculate_energy(particles, root, theta=0.5, G=1)
+            amvec = calculate_angular_momentum(particles)
+            
+            energy_writer.writerow([step*dt, eptot, ektot, etot])
+            angular_writer.writerow([step*dt, amvec[0], amvec[1], amvec[2]])
+            com_writer.writerow([step*dt, cmpos[0], cmpos[1], cmpos[2], cmvel[0], cmvel[1], cmvel[2]])
 
 
 input_filename = 'tbini.txt'  # Replace with your input file path
-output_dir = 'output'  # Replace with your desired output directory
+output_dir = 'output_dir'  # Replace with your desired output directory
 particles = read_particles_from_file(input_filename)
 
-simulate(particles, num_steps=1000, dt=0.005, half_width=50.0, output_dir=output_dir)
+simulate(particles, num_steps=1000, dt=0.005, half_width=1, output_dir=output_dir)
 
