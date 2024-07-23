@@ -142,8 +142,7 @@ def build_octree(particles, center, half_width, max_depth=10):
 # Function to update particles
 def update_particles(particles, forces, dt):
     for i, particle in enumerate(particles):
-        particle.velocity += forces[i] * dt / particle.mass
-        particle.position += particle.velocity * dt
+        particle.position += particle.velocity * dt/2
 
 # Function to calculate potential energy of the system
 def calculate_potential_energy(particles, root, theta, G):
@@ -237,8 +236,8 @@ def simulate(particles, num_steps, dt, half_width, output_dir):
         for step in range(num_steps):
             center = np.mean([p.position for p in particles], axis=0)
             root = build_octree(particles, center, half_width, max_depth=10)
+            update_particles(particles, dt)
             forces = calculate_forces_octree(root, particles)
-            update_particles(particles, forces, dt)
             
             fig, axs = plt.subplots(1, 3, figsize=(18, 6))
             
@@ -294,5 +293,5 @@ input_filename = 'tbini.txt'  # Replace with your input file path
 output_dir = 'output_dir'  # Replace with your desired output directory
 particles = read_particles_from_file(input_filename)
 
-simulate(particles, num_steps=1000, dt=0.005, half_width=1, output_dir=output_dir)
+simulate(particles, num_steps=240, dt=0.005, half_width=1, output_dir=output_dir)
 
