@@ -1,0 +1,22 @@
+{
+    "initial_cash": 575,
+    "target_allocation": {
+        "bull": {
+            "growth": 0.6,
+            "value": 0.3,
+            "other": 0.1
+        },
+        "bear": {
+            "growth": 0.2,
+            "value": 0.5,
+            "other": 0.3
+        }
+    },
+    "market_condition": "bear",
+    "pe_ratio_threshold": 20,
+    "dividend_yield_threshold": 0.03,
+    "gross_margin_threshold": 0.4,
+    "net_operating_margin_threshold": 0.1,
+    "operating_leverage_threshold": 1,
+    "financial_leverage_threshold": 2.5
+}
