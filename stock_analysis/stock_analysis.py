@@ -198,27 +198,29 @@ class StockDataFetcher:
 
                 for symbol, financial_data in zip(symbols, financial_data_list):
                     if not financial_data:
-                                       market_cap = Decimal(financial_data.get("market_cap", None))
+                        continue
 
-                if market_cap and market_cap > 10e9:
-                    info = yf.Ticker(symbol).info
-                    pe_ratio = info.get("forwardPE", None)
-                    dividend_yield = info.get("dividendYield", None)
-                    revenue_growth_rate = info.get("revenueGrowth", None)
-                    eps_growth_rate = info.get("earningsGrowth", None)
+                    market_cap = Decimal(financial_data.get("market_cap", None))
 
-                    if pe_ratio and 5 < pe_ratio < 15 and dividend_yield and dividend_yield > 0.03 and revenue_growth_rate and revenue_growth_rate > 0.05 and eps_growth_rate and eps_growth_rate > 0.05:
-                        criteria[symbol] = {
-                            'pe_ratio': pe_ratio,
-                            'dividend_yield': float(dividend_yield or 0),
-                            'revenue_growth_rate': revenue_growth_rate,
-                            'earnings_growth_rate': eps_growth_rate,
-                            **(await StockDataFetcher.calculate_ratios(financial_data) if financial_data else {})
-                        }
-                        logging.info(f"Criteria for {symbol}: {criteria[symbol]}")
-    except Exception as e:
-        logging.error(f"Error fetching stock criteria: {e}")
-    return criteria
+                    if market_cap and market_cap > 10e9:
+                        info = yf.Ticker(symbol).info
+                        pe_ratio = info.get("forwardPE", None)
+                        dividend_yield = info.get("dividendYield", None)
+                        revenue_growth_rate = info.get("revenueGrowth", None)
+                        eps_growth_rate = info.get("earningsGrowth", None)
+
+                        if pe_ratio and 5 < pe_ratio < 15 and dividend_yield and dividend_yield > 0.03 and revenue_growth_rate and revenue_growth_rate > 0.05 and eps_growth_rate and eps_growth_rate > 0.05:
+                            criteria[symbol] = {
+                                'pe_ratio': pe_ratio,
+                                'dividend_yield': float(dividend_yield or 0),
+                                'revenue_growth_rate': revenue_growth_rate,
+                                'earnings_growth_rate': eps_growth_rate,
+                                **(await StockDataFetcher.calculate_ratios(financial_data) if financial_data else {})
+                            }
+                            logging.info(f"Criteria for {symbol}: {criteria[symbol]}")
+        except Exception as e:
+            logging.error(f"Error fetching stock criteria: {e}")
+        return criteria
 
 class RoboAdvisor:
     def __init__(self, portfolio):
