@@ -27,6 +27,13 @@ class Portfolio:
     def __init__(self, cash):
         self.cash = Decimal(cash)
         self.stocks = {}
+        self.initial_cash = Decimal(cash)  # Track initial cash for performance tracking
+
+    def portfolio_performance(self, stock_prices):
+        current_value = self.portfolio_value(stock_prices)
+        performance = (current_value - self.initial_cash) / self.initial_cash * Decimal('100')
+        logging.info(f"Portfolio Performance: {performance:.2f}%")
+        return performance
 
     def buy_stock(self, symbol, price, quantity):
         cost = price * quantity
@@ -76,60 +83,47 @@ class Portfolio:
 
 class StockDataFetcher:
     @staticmethod
-    def get_sp500_components():
+    def get_sp_components(url):
         try:
-            url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
             response = requests.get(url)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 table = soup.find('table', {'class': 'wikitable sortable'})
                 return [row.find_all('td')[0].text.strip() for row in table.find_all('tr')[1:]]
             else:
-                logging.error(f"Failed to fetch S&P 500 component stocks. Status code: {response.status_code}")
+                logging.error(f"Failed to fetch S&P component stocks from {url}. Status code: {response.status_code}")
                 return []
         except Exception as e:
-            logging.error(f"Error fetching S&P 500 component stocks: {e}")
+            logging.error(f"Error fetching S&P component stocks from {url}: {e}")
             return []
+
+    @staticmethod
+    def get_sp500_components():
+        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+        return StockDataFetcher.get_sp_components(url)
 
     @staticmethod
     def get_sp400_components():
-        try:
-            url = 'https://en.wikipedia.org/wiki/List_of_S%26P_400_companies'
-            response = requests.get(url)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                table = soup.find('table', {'class': 'wikitable sortable'})
-                return [row.find_all('td')[0].text.strip() for row in table.find_all('tr')[1:]]
-            else:
-                logging.error(f"Failed to fetch S&P 400 component stocks. Status code: {response.status_code}")
-                return []
-        except Exception as e:
-            logging.error(f"Error fetching S&P 400 component stocks: {e}")
-            return []
+        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_400_companies'
+        return StockDataFetcher.get_sp_components(url)
 
     @staticmethod
     def get_sp600_components():
-        try:
-            url = 'https://en.wikipedia.org/wiki/List_of_S%26P_600_companies'
-            response = requests.get(url)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                table = soup.find('table', {'class': 'wikitable sortable'})
-                return [row.find_all('td')[0].text.strip() for row in table.find_all('tr')[1:]]
-            else:
-                logging.error(f"Failed to fetch S&P 600 component stocks. Status code: {response.status_code}")
-                return []
-        except Exception as e:
-            logging.error(f"Error fetching S&P 600 component stocks: {e}")
-            return []
-
+        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_600_companies'
+        return StockDataFetcher.get_sp_components(url)
+    
+    _price_cache = {}
     @staticmethod
     def fetch_price(symbol):
+        if symbol in StockDataFetcher._price_cache:
+            return StockDataFetcher._price_cache[symbol]
+        
         try:
             stock = yf.Ticker(symbol)
             hist_data = stock.history(period="1d")
             if not hist_data.empty:
                 latest_price = Decimal(hist_data['Close'].iloc[-1])
+                StockDataFetcher._price_cache[symbol] = (symbol, latest_price)
                 return (symbol, latest_price)
             else:
                 logging.warning(f"No price data available for {symbol}.")
@@ -152,29 +146,29 @@ class StockDataFetcher:
             stock = yf.Ticker(symbol)
             financials = stock.financials
             balance_sheet = stock.balance_sheet
+
             if financials.empty or balance_sheet.empty:
+                logging.warning(f"Financial data or balance sheet is empty for {symbol}")
                 return None
 
-            revenue = financials.loc['Total Revenue'].iloc[0]
-            # Attempt to get cost of revenue
-            cogs = financials.loc['Cost Of Revenue'].iloc[0] if 'Cost Of Revenue' in financials.index else None
-            gross_profit = financials.loc['Gross Profit'].iloc[0] if 'Gross Profit' in financials.index else None
+            revenue = financials.get('Total Revenue', [None])[0]
+            cogs = financials.get('Cost Of Revenue', [None])[0]
+            gross_profit = financials.get('Gross Profit', [None])[0]
+            operating_income = financials.get('Operating Income', [None])[0]
+            ebit = financials.get('EBIT', [None])[0]
+            total_assets = balance_sheet.get('Total Assets', [None])[0]
+            total_debt = balance_sheet.get('Total Debt', [None])[0]
+            total_equity = balance_sheet.get('Stockholders Equity', [None])[0]
 
             # Estimate cost of revenue if it's missing
             if cogs is None and gross_profit is not None:
                 cogs = revenue - gross_profit
                 logging.info(f"Estimated Cost of Revenue for {symbol}: {cogs}")
 
-            operating_income = financials.loc['Operating Income'].iloc[0]
-            ebit = financials.loc['EBIT'].iloc[0]
-            total_assets = balance_sheet.loc['Total Assets'].iloc[0]
-            total_debt = balance_sheet.loc['Total Debt'].iloc[0]
-            total_equity = balance_sheet.loc['Stockholders Equity'].iloc[0]
-
-            gross_margin = (revenue - cogs) / revenue
-            net_operating_margin = operating_income / revenue
-            operating_leverage = ebit / operating_income
-            financial_leverage = total_assets / total_equity
+            gross_margin = (revenue - cogs) / revenue if revenue and cogs else None
+            net_operating_margin = operating_income / revenue if revenue and operating_income else None
+            operating_leverage = ebit / operating_income if ebit and operating_income else None
+            financial_leverage = total_assets / total_equity if total_assets and total_equity else None
 
             return {
                 'gross_margin': gross_margin,
@@ -230,11 +224,29 @@ class StockDataFetcher:
 class RoboAdvisor:
     def __init__(self, portfolio):
         self.portfolio = portfolio
+        
+    def adjust_allocation_based_on_market(self, market_condition):
+        if market_condition == 'bullish':
+            return {sector: weight + Decimal('0.05') for sector, weight in config['target_allocation'].items()}
+        elif market_condition == 'bearish':
+            return {sector: weight - Decimal('0.05') for sector, weight in config['target_allocation'].items()}
+        else:
+            return config['target_allocation']
 
     def adjust_portfolio(self, filename, target_allocation, market_condition):
         self.portfolio.import_portfolio_from_csv(filename)
-        target_allocation_decimal = {k: Decimal(v) for k, v in target_allocation.items()}
+        
+        # Adjust allocation based on market condition
+        adjusted_allocation = self.adjust_allocation_based_on_market(market_condition)
+        target_allocation_decimal = {k: Decimal(v) for k, v in adjusted_allocation.items()}
+        
+        # Rebalance the portfolio
         bought_stocks = self.rebalance_portfolio(target_allocation_decimal, market_condition)
+        
+        # Track and log portfolio performance
+        if bought_stocks:
+            stock_prices = StockDataFetcher.get_stock_prices(bought_stocks.keys())
+            self.portfolio.portfolio_performance(stock_prices)  # Track performance
         return bought_stocks
 
     def rebalance_portfolio(self, target_allocation, market_condition):
@@ -261,7 +273,7 @@ class RoboAdvisor:
         remaining_cash = self.portfolio.cash
 
         # Diversify investment
-        max_investment_per_stock = total_value * Decimal('0.1')  # For example, no more than 20% of the total portfolio value per stock
+        max_investment_per_stock = total_value * Decimal('0.1')
 
         for symbol in picked_stocks:
             if symbol in stock_prices:
@@ -274,7 +286,6 @@ class RoboAdvisor:
                 if current_value < target_value:
                     additional_quantity = min(int((target_value - current_value) / stock_price_decimal),
                                               int(criteria[symbol]['market_cap'] / stock_price_decimal))
-                    # Ensure we do not exceed the max investment per stock
                     actual_quantity = min(additional_quantity, int(max_investment_per_stock / stock_price_decimal))
                     actual_quantity = min(actual_quantity, int(remaining_cash / stock_price_decimal))
                     if actual_quantity > 0:
@@ -297,10 +308,12 @@ class RoboAdvisor:
                         bought_stocks[symbol] = additional_quantity
                         remaining_cash -= total_cost
 
-        logging.info("\nFinalized Portfolio:")
+        # Enhanced logging: Portfolio summary
+        logging.info("Finalized Portfolio:")
         logging.info(f"Cash: {self.portfolio.cash}")
+        logging.info(f"Portfolio Value: {total_value}")
         if bought_stocks:
-            logging.info("\nBought stocks:")
+            logging.info("Bought stocks:")
             for symbol, quantity in bought_stocks.items():
                 logging.info(f"{quantity} shares of {symbol}")
                 logging.info(f"Gross Margin: {criteria[symbol]['gross_margin']}")
