@@ -1,5 +1,5 @@
 {
-    "initial_cash": 575,
+    "initial_cash": 1000,
     "target_allocation": {
         "bull": {
             "growth": 0.6,
@@ -18,5 +18,12 @@
     "gross_margin_threshold": 0.4,
     "net_operating_margin_threshold": 0.1,
     "operating_leverage_threshold": 1,
-    "financial_leverage_threshold": 2.5
+    "financial_leverage_threshold": 2.5,
+    "sector_limits": {
+        "Technology": 0.25,
+        "Healthcare": 0.2,
+        "Financials": 0.15,
+        "Consumer Discretionary": 0.1,
+        "Other": 0.3
+      }
 }
