@@ -156,7 +156,15 @@ class StockDataFetcher:
                 return None
 
             revenue = financials.loc['Total Revenue'].iloc[0]
-            cogs = financials.loc['Cost Of Revenue'].iloc[0]
+            # Attempt to get cost of revenue
+            cogs = financials.loc['Cost Of Revenue'].iloc[0] if 'Cost Of Revenue' in financials.index else None
+            gross_profit = financials.loc['Gross Profit'].iloc[0] if 'Gross Profit' in financials.index else None
+
+            # Estimate cost of revenue if it's missing
+            if cogs is None and gross_profit is not None:
+                cogs = revenue - gross_profit
+                logging.info(f"Estimated Cost of Revenue for {symbol}: {cogs}")
+
             operating_income = financials.loc['Operating Income'].iloc[0]
             ebit = financials.loc['EBIT'].iloc[0]
             total_assets = balance_sheet.loc['Total Assets'].iloc[0]
