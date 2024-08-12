@@ -4,16 +4,11 @@ import yfinance as yf
 import logging
 from decimal import Decimal
 import csv
-# import numpy as np
-# import pandas as pd
 import os
-# from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import json
 import aiohttp
 import asyncio
-# import matplotlib.pyplot as plt
-# import unittest
 
 # Logging configuration
 logging.basicConfig(filename='robo_advisor.log', level=logging.INFO)
@@ -29,7 +24,7 @@ class Portfolio:
     def __init__(self, cash):
         self.cash = Decimal(cash)
         self.stocks = {}
-        self.initial_cash = Decimal(cash)  # Track initial cash for performance tracking
+        self.initial_cash = Decimal(cash)
 
     def portfolio_performance(self, stock_prices):
         current_value = self.portfolio_value(stock_prices)
@@ -42,7 +37,6 @@ class Portfolio:
         if self.cash >= cost:
             self.cash -= cost
             self.stocks[symbol] = self.stocks.get(symbol, 0) + quantity
-
             logging.info(f"Bought {quantity} shares of {symbol} at ${price:.2f} each.")
         else:
             logging.error("Insufficient funds to buy.")
@@ -114,7 +108,6 @@ class StockDataFetcher:
         url = 'https://en.wikipedia.org/wiki/List_of_S%26P_600_companies'
         return StockDataFetcher.get_sp_components(url)
     
-    _price_cache = {}
     @staticmethod
     async def fetch_price(symbol, session):
         url = f'https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}'
@@ -138,7 +131,7 @@ class StockDataFetcher:
         async with aiohttp.ClientSession() as session:
             tasks = [StockDataFetcher.fetch_price(symbol, session) for symbol in symbols]
             results = await asyncio.gather(*tasks)
-            stock_prices.update(results)
+            stock_prices.update(dict(results))
         return stock_prices
 
     @staticmethod
@@ -149,7 +142,6 @@ class StockDataFetcher:
                 data = await response.json()
                 if 'quoteResponse' in data and 'result' in data['quoteResponse']:
                     result = data['quoteResponse']['result'][0]
-                    # Extract relevant financial data
                     financials = {
                         'cogs': result.get('costOfGoodsSold', None),
                         'gross_profit': result.get('grossProfit', None),
@@ -171,7 +163,6 @@ class StockDataFetcher:
     @staticmethod
     async def calculate_ratios(financials):
         try:
-            # Calculate financial ratios
             gross_margin = (Decimal(financials['gross_profit']) / Decimal(financials['cogs'])) if financials['cogs'] else None
             net_operating_margin = (Decimal(financials['operating_income']) / Decimal(financials['total_assets'])) if financials['total_assets'] else None
             operating_leverage = (Decimal(financials['ebit']) / Decimal(financials['operating_income'])) if financials['operating_income'] else None
@@ -207,29 +198,27 @@ class StockDataFetcher:
 
                 for symbol, financial_data in zip(symbols, financial_data_list):
                     if not financial_data:
-                        continue
+                                       market_cap = Decimal(financial_data.get("market_cap", None))
 
-                    market_cap = Decimal(financial_data.get("market_cap", None))
+                if market_cap and market_cap > 10e9:
+                    info = yf.Ticker(symbol).info
+                    pe_ratio = info.get("forwardPE", None)
+                    dividend_yield = info.get("dividendYield", None)
+                    revenue_growth_rate = info.get("revenueGrowth", None)
+                    eps_growth_rate = info.get("earningsGrowth", None)
 
-                    if market_cap and market_cap > 10e9:
-                        info = yf.Ticker(symbol).info
-                        pe_ratio = info.get("forwardPE", None)
-                        dividend_yield = info.get("dividendYield", None)
-                        revenue_growth_rate = info.get("revenueGrowth", None)
-                        eps_growth_rate = info.get("earningsGrowth", None)
-
-                        if pe_ratio and 5 < pe_ratio < 15 and dividend_yield and dividend_yield > 0.03 and revenue_growth_rate and revenue_growth_rate > 0.05 and eps_growth_rate and eps_growth_rate > 0.05:
-                            criteria[symbol] = {
-                                'pe_ratio': pe_ratio,
-                                'dividend_yield': float(dividend_yield or 0),
-                                'revenue_growth_rate': revenue_growth_rate,
-                                'earnings_growth_rate': eps_growth_rate,
-                                **(await StockDataFetcher.calculate_ratios(financial_data) if financial_data else {})
-                            }
-                            logging.info(f"Criteria for {symbol}: {criteria[symbol]}")
-        except Exception as e:
-            logging.error(f"Error fetching stock criteria: {e}")
-        return criteria
+                    if pe_ratio and 5 < pe_ratio < 15 and dividend_yield and dividend_yield > 0.03 and revenue_growth_rate and revenue_growth_rate > 0.05 and eps_growth_rate and eps_growth_rate > 0.05:
+                        criteria[symbol] = {
+                            'pe_ratio': pe_ratio,
+                            'dividend_yield': float(dividend_yield or 0),
+                            'revenue_growth_rate': revenue_growth_rate,
+                            'earnings_growth_rate': eps_growth_rate,
+                            **(await StockDataFetcher.calculate_ratios(financial_data) if financial_data else {})
+                        }
+                        logging.info(f"Criteria for {symbol}: {criteria[symbol]}")
+    except Exception as e:
+        logging.error(f"Error fetching stock criteria: {e}")
+    return criteria
 
 class RoboAdvisor:
     def __init__(self, portfolio):
@@ -250,7 +239,7 @@ class RoboAdvisor:
         return bought_stocks
 
     async def rebalance_portfolio_async(self, target_allocation, market_condition):
-        criteria = StockDataFetcher.get_stock_criteria()
+        criteria = await StockDataFetcher.get_stock_criteria()
         if not criteria:
             logging.error("No stock criteria available.")
             return {}
@@ -260,7 +249,7 @@ class RoboAdvisor:
             logging.error("No stocks picked based on criteria.")
             return {}
 
-        stock_prices = await StockDataFetcher.get_stock_prices_async(picked_stocks)
+        stock_prices = await StockDataFetcher.get_stock_prices(picked_stocks)
         if not stock_prices:
             logging.error("Unable to rebalance portfolio.")
             return {}
@@ -272,7 +261,7 @@ class RoboAdvisor:
         bought_stocks = {}
         remaining_cash = self.portfolio.cash
 
-        max_investment_per_stock = total_value * Decimal('0.1')  # No more than 10% of the total portfolio value per stock
+        max_investment_per_stock = total_value * Decimal('0.1')
 
         for symbol in picked_stocks:
             if symbol in stock_prices:
@@ -356,5 +345,4 @@ if __name__ == "__main__":
     if bought_stocks:
         logging.info(f"Bought stocks: {bought_stocks}")
     else:
-        logging.error("No stocks were bought.")
-
+            logging.error("No stocks were bought.")
