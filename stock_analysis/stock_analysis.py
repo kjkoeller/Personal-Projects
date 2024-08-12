@@ -10,6 +10,8 @@ import os
 # from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import json
+import aiohttp
+import asyncio
 # import matplotlib.pyplot as plt
 # import unittest
 
@@ -114,109 +116,92 @@ class StockDataFetcher:
     
     _price_cache = {}
     @staticmethod
-    def fetch_price(symbol):
-        if symbol in StockDataFetcher._price_cache:
-            return StockDataFetcher._price_cache[symbol]
-        
+    async def fetch_price(symbol, session):
+        url = f'https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}'
         try:
-            stock = yf.Ticker(symbol)
-            hist_data = stock.history(period="1d")
-            if not hist_data.empty:
-                latest_price = Decimal(hist_data['Close'].iloc[-1])
-                StockDataFetcher._price_cache[symbol] = (symbol, latest_price)
-                return (symbol, latest_price)
-            else:
-                logging.warning(f"No price data available for {symbol}.")
-                return (symbol, Decimal('0'))
+            async with session.get(url) as response:
+                data = await response.json()
+                if 'quoteResponse' in data and 'result' in data['quoteResponse']:
+                    result = data['quoteResponse']['result'][0]
+                    latest_price = Decimal(result['regularMarketPrice'])
+                    return (symbol, latest_price)
+                else:
+                    logging.warning(f"No price data available for {symbol}.")
+                    return (symbol, Decimal('0'))
         except Exception as e:
             logging.error(f"Error fetching stock price for {symbol}: {e}")
             return (symbol, Decimal('0'))
 
     @staticmethod
-    def get_stock_prices(symbols):
+    async def get_stock_prices(symbols):
         stock_prices = {}
-        with ThreadPoolExecutor() as executor:
-            results = executor.map(StockDataFetcher.fetch_price, symbols)
+        async with aiohttp.ClientSession() as session:
+            tasks = [StockDataFetcher.fetch_price(symbol, session) for symbol in symbols]
+            results = await asyncio.gather(*tasks)
             stock_prices.update(results)
         return stock_prices
 
     @staticmethod
-    def get_financial_data(symbol):
+    async def get_financial_data(symbol, session):
+        url = f'https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}'
         try:
-            stock = yf.Ticker(symbol)
-            financials = stock.financials
-            balance_sheet = stock.balance_sheet
-
-            if financials.empty or balance_sheet.empty:
-                logging.warning(f"Financial data or balance sheet is empty for {symbol}")
-                return None
-
-            revenue = financials.get('Total Revenue', [None])[0]
-            cogs = financials.get('Cost Of Revenue', [None])[0]
-            gross_profit = financials.get('Gross Profit', [None])[0]
-            operating_income = financials.get('Operating Income', [None])[0]
-            ebit = financials.get('EBIT', [None])[0]
-            total_assets = balance_sheet.get('Total Assets', [None])[0]
-            total_debt = balance_sheet.get('Total Debt', [None])[0]
-            total_equity = balance_sheet.get('Stockholders Equity', [None])[0]
-
-            # Estimate cost of revenue if it's missing
-            if cogs is None and gross_profit is not None:
-                cogs = revenue - gross_profit
-                logging.info(f"Estimated Cost of Revenue for {symbol}: {cogs}")
-
-            gross_margin = (revenue - cogs) / revenue if revenue and cogs else None
-            net_operating_margin = operating_income / revenue if revenue and operating_income else None
-            operating_leverage = ebit / operating_income if ebit and operating_income else None
-            financial_leverage = total_assets / total_equity if total_assets and total_equity else None
-
-            return {
-                'gross_margin': gross_margin,
-                'net_operating_margin': net_operating_margin,
-                'operating_leverage': operating_leverage,
-                'financial_leverage': financial_leverage
-            }
+            async with session.get(url) as response:
+                data = await response.json()
+                if 'quoteResponse' in data and 'result' in data['quoteResponse']:
+                    result = data['quoteResponse']['result'][0]
+                    # Parse the required financial data from the result
+                    financials = {
+                        'gross_margin': result.get('grossMargin', None),
+                        'net_operating_margin': result.get('netOperatingMargin', None),
+                        'operating_leverage': result.get('operatingLeverage', None),
+                        'financial_leverage': result.get('financialLeverage', None),
+                    }
+                    return financials
+                else:
+                    logging.warning(f"No financial data available for {symbol}.")
+                    return None
         except Exception as e:
             logging.error(f"Error fetching financial data for {symbol}: {e}")
             return None
 
     @staticmethod
-    def get_stock_criteria():
+    async def get_stock_criteria():
         criteria = {}
         try:
             SP500 = StockDataFetcher.get_sp500_components()
             SP400 = StockDataFetcher.get_sp400_components()
-            Sp600 = StockDataFetcher.get_sp600_components()
+            SP600 = StockDataFetcher.get_sp600_components()
 
-            symbols = SP500 + SP400 + Sp600
-            for symbol in symbols:
-                stock = yf.Ticker(symbol)
-                info = stock.info
-                market_cap = info.get("marketCap", None)
+            symbols = SP500 + SP400 + SP600
+            async with aiohttp.ClientSession() as session:
+                tasks = [StockDataFetcher.get_financial_data(symbol, session) for symbol in symbols]
+                financial_data_list = await asyncio.gather(*tasks)
+                for symbol, financial_data in zip(symbols, financial_data_list):
+                    info = yf.Ticker(symbol).info
+                    market_cap = info.get("marketCap", None)
 
-                if market_cap and market_cap > 10e9:
-                    pe_ratio = info.get("forwardPE", 0)
-                    dividend_yield = info.get("dividendYield", 0)
-                    revenue_growth_rate = info.get("revenueGrowth", 0)
-                    eps_growth_rate = info.get("earningsGrowth", 0)
-                    financial_data = StockDataFetcher.get_financial_data(symbol)
+                    if market_cap and market_cap > 10e9:
+                        pe_ratio = info.get("forwardPE", 0)
+                        dividend_yield = info.get("dividendYield", 0)
+                        revenue_growth_rate = info.get("revenueGrowth", 0)
+                        eps_growth_rate = info.get("earningsGrowth", 0)
 
-                    if (pe_ratio and 5 < pe_ratio < 15 and
-                        dividend_yield and dividend_yield > 0.03 and
-                        revenue_growth_rate and revenue_growth_rate > 0.05 and
-                        eps_growth_rate and eps_growth_rate > 0.05):
-                        criteria[symbol] = {
-                            'pe_ratio': pe_ratio,
-                            'dividend_yield': float(dividend_yield or 0),
-                            'revenue_growth_rate': revenue_growth_rate,
-                            'earnings_growth_rate': eps_growth_rate,
-                            'market_cap': market_cap,
-                            'gross_margin': financial_data['gross_margin'] if financial_data else None,
-                            'net_operating_margin': financial_data['net_operating_margin'] if financial_data else None,
-                            'operating_leverage': financial_data['operating_leverage'] if financial_data else None,
-                            'financial_leverage': financial_data['financial_leverage'] if financial_data else None
-                        }
-                        logging.info(f"Criteria for {symbol}: {criteria[symbol]}")
+                        if (pe_ratio and 5 < pe_ratio < 15 and
+                            dividend_yield and dividend_yield > 0.03 and
+                            revenue_growth_rate and revenue_growth_rate > 0.05 and
+                            eps_growth_rate and eps_growth_rate > 0.05):
+                            criteria[symbol] = {
+                                'pe_ratio': pe_ratio,
+                                'dividend_yield': float(dividend_yield or 0),
+                                'revenue_growth_rate': revenue_growth_rate,
+                                'earnings_growth_rate': eps_growth_rate,
+                                'market_cap': market_cap,
+                                'gross_margin': financial_data['gross_margin'] if financial_data else None,
+                                'net_operating_margin': financial_data['net_operating_margin'] if financial_data else None,
+                                'operating_leverage': financial_data['operating_leverage'] if financial_data else None,
+                                'financial_leverage': financial_data['financial_leverage'] if financial_data else None
+                            }
+                            logging.info(f"Criteria for {symbol}: {criteria[symbol]}")
         except Exception as e:
             logging.error(f"Error fetching stock criteria: {e}")
         return criteria
@@ -235,21 +220,11 @@ class RoboAdvisor:
 
     def adjust_portfolio(self, filename, target_allocation, market_condition):
         self.portfolio.import_portfolio_from_csv(filename)
-        
-        # Adjust allocation based on market condition
-        adjusted_allocation = self.adjust_allocation_based_on_market(market_condition)
-        target_allocation_decimal = {k: Decimal(v) for k, v in adjusted_allocation.items()}
-        
-        # Rebalance the portfolio
+        target_allocation_decimal = {k: Decimal(v) for k, v in target_allocation.items()}
         bought_stocks = self.rebalance_portfolio(target_allocation_decimal, market_condition)
-        
-        # Track and log portfolio performance
-        if bought_stocks:
-            stock_prices = StockDataFetcher.get_stock_prices(bought_stocks.keys())
-            self.portfolio.portfolio_performance(stock_prices)  # Track performance
         return bought_stocks
 
-    def rebalance_portfolio(self, target_allocation, market_condition):
+    async def rebalance_portfolio_async(self, target_allocation, market_condition):
         criteria = StockDataFetcher.get_stock_criteria()
         if not criteria:
             logging.error("No stock criteria available.")
@@ -260,7 +235,7 @@ class RoboAdvisor:
             logging.error("No stocks picked based on criteria.")
             return {}
 
-        stock_prices = StockDataFetcher.get_stock_prices(picked_stocks)
+        stock_prices = await StockDataFetcher.get_stock_prices_async(picked_stocks)
         if not stock_prices:
             logging.error("Unable to rebalance portfolio.")
             return {}
@@ -272,8 +247,7 @@ class RoboAdvisor:
         bought_stocks = {}
         remaining_cash = self.portfolio.cash
 
-        # Diversify investment
-        max_investment_per_stock = total_value * Decimal('0.1')
+        max_investment_per_stock = total_value * Decimal('0.1')  # No more than 10% of the total portfolio value per stock
 
         for symbol in picked_stocks:
             if symbol in stock_prices:
@@ -308,12 +282,10 @@ class RoboAdvisor:
                         bought_stocks[symbol] = additional_quantity
                         remaining_cash -= total_cost
 
-        # Enhanced logging: Portfolio summary
-        logging.info("Finalized Portfolio:")
+        logging.info("\nFinalized Portfolio:")
         logging.info(f"Cash: {self.portfolio.cash}")
-        logging.info(f"Portfolio Value: {total_value}")
         if bought_stocks:
-            logging.info("Bought stocks:")
+            logging.info("\nBought stocks:")
             for symbol, quantity in bought_stocks.items():
                 logging.info(f"{quantity} shares of {symbol}")
                 logging.info(f"Gross Margin: {criteria[symbol]['gross_margin']}")
@@ -323,6 +295,9 @@ class RoboAdvisor:
 
         self.portfolio.save_portfolio_to_csv('portfolio.csv', bought_stocks, criteria)
         return bought_stocks
+
+    def rebalance_portfolio(self, target_allocation, market_condition):
+        return asyncio.run(self.rebalance_portfolio_async(target_allocation, market_condition))
 
     def pick_stocks(self, criteria):
         return list(criteria.keys())
@@ -351,10 +326,10 @@ if __name__ == "__main__":
     robo_advisor = RoboAdvisor(initial_portfolio)
     target_allocation = config['target_allocation']
     market_condition = config['market_condition']
-    bought_stocks = robo_advisor.adjust_portfolio('current_portfolio.csv', target_allocation[market_condition], market_condition)
+    bought_stocks = robo_advisor.rebalance_portfolio(target_allocation[market_condition], market_condition)
 
     if bought_stocks:
         logging.info(f"Bought stocks: {bought_stocks}")
-        stock_prices = StockDataFetcher.get_stock_prices(bought_stocks.keys())
     else:
         logging.error("No stocks were bought.")
+
