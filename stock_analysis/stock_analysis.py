@@ -158,6 +158,7 @@ class StockDataFetcher:
                         'total_assets': result.get('totalAssets', None),
                         'total_debt': result.get('totalDebt', None),
                         'total_equity': result.get('totalEquity', None),
+                        'market_cap': result.get('marketCap', None)
                     }
                     return financials
                 else:
@@ -201,22 +202,23 @@ class StockDataFetcher:
 
             symbols = SP500 + SP400 + SP600
             async with aiohttp.ClientSession() as session:
-                # Fetch basic info first to filter stocks
-                tasks = [StockDataFetcher.get_financial_data(symbol, session) for symbol in symbols]
+                tasks = [StockDataFetcher.fetch_financials(symbol, session) for symbol in symbols]
                 financial_data_list = await asyncio.gather(*tasks)
 
-                # Filter stocks based on market cap and gather additional data
                 for symbol, financial_data in zip(symbols, financial_data_list):
-                    info = yf.Ticker(symbol).info
-                    market_cap = info.get("marketCap", None)
+                    if not financial_data:
+                        continue
 
-                    if market_cap and market_cap > 10e9:
+                    market_cap = Decimal(financial_data.get("market_cap", 0))
+
+                    if market_cap > 10e9:
+                        info = yf.Ticker(symbol).info
                         pe_ratio = info.get("forwardPE", None)
                         dividend_yield = info.get("dividendYield", None)
                         revenue_growth_rate = info.get("revenueGrowth", None)
                         eps_growth_rate = info.get("earningsGrowth", None)
 
-                        if pe_ratio and dividend_yield and revenue_growth_rate and eps_growth_rate:
+                        if pe_ratio is not None and dividend_yield is not None and revenue_growth_rate is not None and eps_growth_rate is not None:
                             criteria[symbol] = {
                                 'pe_ratio': pe_ratio,
                                 'dividend_yield': float(dividend_yield or 0),
