@@ -209,16 +209,16 @@ class StockDataFetcher:
                     if not financial_data:
                         continue
 
-                    market_cap = Decimal(financial_data.get("market_cap", 0))
+                    market_cap = Decimal(financial_data.get("market_cap", None))
 
-                    if market_cap > 10e9:
+                    if market_cap and market_cap > 10e9:
                         info = yf.Ticker(symbol).info
                         pe_ratio = info.get("forwardPE", None)
                         dividend_yield = info.get("dividendYield", None)
                         revenue_growth_rate = info.get("revenueGrowth", None)
                         eps_growth_rate = info.get("earningsGrowth", None)
 
-                        if pe_ratio is not None and dividend_yield is not None and revenue_growth_rate is not None and eps_growth_rate is not None:
+                        if pe_ratio and 5 < pe_ratio < 15 and dividend_yield and dividend_yield > 0.03 and revenue_growth_rate and revenue_growth_rate > 0.05 and eps_growth_rate and eps_growth_rate > 0.05:
                             criteria[symbol] = {
                                 'pe_ratio': pe_ratio,
                                 'dividend_yield': float(dividend_yield or 0),
