@@ -142,19 +142,22 @@ class StockDataFetcher:
         return stock_prices
 
     @staticmethod
-    async def get_financial_data(symbol, session):
+    async def fetch_financials(symbol, session):
         url = f'https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}'
         try:
             async with session.get(url) as response:
                 data = await response.json()
                 if 'quoteResponse' in data and 'result' in data['quoteResponse']:
                     result = data['quoteResponse']['result'][0]
-                    # Parse the required financial data from the result
+                    # Extract relevant financial data
                     financials = {
-                        'gross_margin': result.get('grossMargin', None),
-                        'net_operating_margin': result.get('netOperatingMargin', None),
-                        'operating_leverage': result.get('operatingLeverage', None),
-                        'financial_leverage': result.get('financialLeverage', None),
+                        'cogs': result.get('costOfGoodsSold', None),
+                        'gross_profit': result.get('grossProfit', None),
+                        'ebit': result.get('ebit', None),
+                        'operating_income': result.get('operatingIncome', None),
+                        'total_assets': result.get('totalAssets', None),
+                        'total_debt': result.get('totalDebt', None),
+                        'total_equity': result.get('totalEquity', None),
                     }
                     return financials
                 else:
@@ -163,6 +166,30 @@ class StockDataFetcher:
         except Exception as e:
             logging.error(f"Error fetching financial data for {symbol}: {e}")
             return None
+
+    @staticmethod
+    async def calculate_ratios(financials):
+        try:
+            # Calculate financial ratios
+            gross_margin = (Decimal(financials['gross_profit']) / Decimal(financials['cogs'])) if financials['cogs'] else None
+            net_operating_margin = (Decimal(financials['operating_income']) / Decimal(financials['total_assets'])) if financials['total_assets'] else None
+            operating_leverage = (Decimal(financials['ebit']) / Decimal(financials['operating_income'])) if financials['operating_income'] else None
+            financial_leverage = (Decimal(financials['total_assets']) / Decimal(financials['total_equity'])) if financials['total_equity'] else None
+
+            return {
+                'gross_margin': gross_margin,
+                'net_operating_margin': net_operating_margin,
+                'operating_leverage': operating_leverage,
+                'financial_leverage': financial_leverage
+            }
+        except Exception as e:
+            logging.error(f"Error calculating financial ratios: {e}")
+            return {
+                'gross_margin': None,
+                'net_operating_margin': None,
+                'operating_leverage': None,
+                'financial_leverage': None
+            }
 
     @staticmethod
     async def get_stock_criteria():
@@ -174,32 +201,28 @@ class StockDataFetcher:
 
             symbols = SP500 + SP400 + SP600
             async with aiohttp.ClientSession() as session:
+                # Fetch basic info first to filter stocks
                 tasks = [StockDataFetcher.get_financial_data(symbol, session) for symbol in symbols]
                 financial_data_list = await asyncio.gather(*tasks)
+
+                # Filter stocks based on market cap and gather additional data
                 for symbol, financial_data in zip(symbols, financial_data_list):
                     info = yf.Ticker(symbol).info
                     market_cap = info.get("marketCap", None)
 
                     if market_cap and market_cap > 10e9:
-                        pe_ratio = info.get("forwardPE", 0)
-                        dividend_yield = info.get("dividendYield", 0)
-                        revenue_growth_rate = info.get("revenueGrowth", 0)
-                        eps_growth_rate = info.get("earningsGrowth", 0)
+                        pe_ratio = info.get("forwardPE", None)
+                        dividend_yield = info.get("dividendYield", None)
+                        revenue_growth_rate = info.get("revenueGrowth", None)
+                        eps_growth_rate = info.get("earningsGrowth", None)
 
-                        if (pe_ratio and 5 < pe_ratio < 15 and
-                            dividend_yield and dividend_yield > 0.03 and
-                            revenue_growth_rate and revenue_growth_rate > 0.05 and
-                            eps_growth_rate and eps_growth_rate > 0.05):
+                        if pe_ratio and dividend_yield and revenue_growth_rate and eps_growth_rate:
                             criteria[symbol] = {
                                 'pe_ratio': pe_ratio,
                                 'dividend_yield': float(dividend_yield or 0),
                                 'revenue_growth_rate': revenue_growth_rate,
                                 'earnings_growth_rate': eps_growth_rate,
-                                'market_cap': market_cap,
-                                'gross_margin': financial_data['gross_margin'] if financial_data else None,
-                                'net_operating_margin': financial_data['net_operating_margin'] if financial_data else None,
-                                'operating_leverage': financial_data['operating_leverage'] if financial_data else None,
-                                'financial_leverage': financial_data['financial_leverage'] if financial_data else None
+                                **(await StockDataFetcher.calculate_ratios(financial_data) if financial_data else {})
                             }
                             logging.info(f"Criteria for {symbol}: {criteria[symbol]}")
         except Exception as e:
