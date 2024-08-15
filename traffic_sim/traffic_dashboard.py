@@ -15,20 +15,22 @@ app = dash.Dash(__name__)
 app.layout = html.Div([
     html.H1('Traffic Data Dashboard'),
 
-    # Row with the traffic graph and the road network image
     html.Div([
-        # Traffic Graph
-        html.Div([
-            dcc.Graph(id='traffic-graph'),
-        ], style={'width': '70%', 'display': 'inline-block'}),
-
-        # Example Road Network Image (replace with actual if needed)
-        html.Div([
-            html.Img(src=app.get_asset_url('road_network.png'), style={'width': '100%', 'height': 'auto'}),
-        ], style={'width': '25%', 'display': 'inline-block', 'padding': '20px'}),
-    ]),
-
-    html.Div([
+        # Dropdown for selecting road segment
+        html.Label('Select Road Segment:'),
+        dcc.Dropdown(
+            id='segment-dropdown',
+            options=[{'label': seg, 'value': seg} for seg in data['road_segment'].unique()],
+            value=data['road_segment'].unique()[0]
+        ),
+        # Dropdown for selecting vehicle type
+        html.Label('Select Vehicle Type:'),
+        dcc.Dropdown(
+            id='vehicle-dropdown',
+            options=[{'label': vt, 'value': vt} for vt in data['vehicle_type'].unique()],
+            value=data['vehicle_type'].unique()[0]
+        ),
+        # Dropdown for selecting feature to plot
         html.Label('Select Feature:'),
         dcc.Dropdown(
             id='feature-dropdown',
@@ -39,6 +41,7 @@ app.layout = html.Div([
             ],
             value='traffic_volume'
         ),
+        # Date range selector
         html.Label('Select Date Range:'),
         dcc.DatePickerRange(
             id='date-picker-range',
@@ -47,21 +50,31 @@ app.layout = html.Div([
             display_format='YYYY-MM-DD',
         ),
     ]),
+
+    dcc.Graph(id='traffic-graph')
 ])
 
 @app.callback(
     Output('traffic-graph', 'figure'),
-    [Input('feature-dropdown', 'value'),
-     Input('date-picker-range', 'start_date'),
-     Input('date-picker-range', 'end_date')]
+    [
+        Input('segment-dropdown', 'value'),
+        Input('vehicle-dropdown', 'value'),
+        Input('feature-dropdown', 'value'),
+        Input('date-picker-range', 'start_date'),
+        Input('date-picker-range', 'end_date')
+    ]
 )
-def update_graph(selected_feature, start_date, end_date):
-    # Ensure the date range is correctly handled by pandas
-    filtered_data = data[(data['timestamp'] >= pd.to_datetime(start_date)) &
-                         (data['timestamp'] <= pd.to_datetime(end_date))]
+def update_graph(selected_segment, selected_vehicle, selected_feature, start_date, end_date):
+    # Filter data based on selections
+    filtered_data = data[
+        (data['road_segment'] == selected_segment) &
+        (data['vehicle_type'] == selected_vehicle) &
+        (data['timestamp'] >= start_date) &
+        (data['timestamp'] <= end_date)
+    ]
 
+    # Create the figure
     fig = go.Figure()
-
     fig.add_trace(go.Scatter(
         x=filtered_data['timestamp'],
         y=filtered_data[selected_feature],
@@ -69,20 +82,15 @@ def update_graph(selected_feature, start_date, end_date):
         name=selected_feature
     ))
 
-    fig.update_layout(
-        title=f'{selected_feature.replace("_", " ").title()} Over Time',
-        xaxis_title='Time',
-        yaxis_title=selected_feature.replace('_', ' ').title(),
-        xaxis=dict(
-            type="date",
-            range=[filtered_data['timestamp'].min(), filtered_data['timestamp'].max()],
-            rangeslider=dict(visible=True),  # Add a range slider for easier zooming
-        ),
-        transition_duration=500
-    )
+    fig.update_layout(title=f’{selected_feature.replace(””, “ “).title()} Over Time’,
+        xaxis_title=‘Time’,
+        yaxis_title=selected_feature.replace(’’, ’ ’).title(),
+        xaxis=dict(range=[filtered_data[‘timestamp’].min(), filtered_data[‘timestamp’].max()],
+        rangeslider=dict(visible=True)
+    ))
 
-    return fig
+return fig
 
-if __name__ == '__main__':
+if name == ‘main’:
     app.run_server(debug=True)
 
