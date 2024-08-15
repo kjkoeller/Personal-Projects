@@ -82,15 +82,17 @@ def update_graph(selected_segment, selected_vehicle, selected_feature, start_dat
         name=selected_feature
     ))
 
-    fig.update_layout(title=f’{selected_feature.replace(””, “ “).title()} Over Time’,
-        xaxis_title=‘Time’,
-        yaxis_title=selected_feature.replace(’’, ’ ’).title(),
-        xaxis=dict(range=[filtered_data[‘timestamp’].min(), filtered_data[‘timestamp’].max()],
-        rangeslider=dict(visible=True)
-    ))
+    fig.update_layout(
+        title=f'{selected_feature.replace("_", " ").title()} Over Time',
+        xaxis_title='Time',
+        yaxis_title=selected_feature.replace('_', ' ').title(),
+        xaxis=dict(
+            range=[filtered_data['timestamp'].min(), filtered_data['timestamp'].max()],
+            rangeslider=dict(visible=True)
+        )
+    )
 
-return fig
+    return fig
 
-if name == ‘main’:
+if __name__ == '__main__':
     app.run_server(debug=True)
-
