@@ -109,10 +109,22 @@ class StockDataFetcher:
         return StockDataFetcher.get_sp_components(url)
     
     @staticmethod
+    async def get_stock_prices(symbols):
+        stock_prices = {}
+        async with aiohttp.ClientSession() as session:
+            tasks = [StockDataFetcher.fetch_price(symbol, session) for symbol in symbols]
+            results = await asyncio.gather(*tasks)
+            stock_prices.update(dict(results))
+        return stock_prices
+    
+        @staticmethod
     async def fetch_price(symbol, session):
         url = f'https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}'
         try:
             async with session.get(url) as response:
+                if response.status == 429:
+                    logging.error(f"Rate limit exceeded while fetching price for {symbol}.")
+                    return (symbol, Decimal('0'))
                 data = await response.json()
                 if 'quoteResponse' in data and 'result' in data['quoteResponse']:
                     result = data['quoteResponse']['result'][0]
@@ -126,19 +138,13 @@ class StockDataFetcher:
             return (symbol, Decimal('0'))
 
     @staticmethod
-    async def get_stock_prices(symbols):
-        stock_prices = {}
-        async with aiohttp.ClientSession() as session:
-            tasks = [StockDataFetcher.fetch_price(symbol, session) for symbol in symbols]
-            results = await asyncio.gather(*tasks)
-            stock_prices.update(dict(results))
-        return stock_prices
-
-    @staticmethod
     async def fetch_financials(symbol, session):
         url = f'https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}'
         try:
             async with session.get(url) as response:
+                if response.status == 429:
+                    logging.error(f"Rate limit exceeded while fetching financials for {symbol}.")
+                    return None
                 data = await response.json()
                 if 'quoteResponse' in data and 'result' in data['quoteResponse']:
                     result = data['quoteResponse']['result'][0]
@@ -159,29 +165,6 @@ class StockDataFetcher:
         except Exception as e:
             logging.error(f"Error fetching financial data for {symbol}: {e}")
             return None
-
-    @staticmethod
-    async def calculate_ratios(financials):
-        try:
-            gross_margin = (Decimal(financials['gross_profit']) / Decimal(financials['cogs'])) if financials['cogs'] else None
-            net_operating_margin = (Decimal(financials['operating_income']) / Decimal(financials['total_assets'])) if financials['total_assets'] else None
-            operating_leverage = (Decimal(financials['ebit']) / Decimal(financials['operating_income'])) if financials['operating_income'] else None
-            financial_leverage = (Decimal(financials['total_assets']) / Decimal(financials['total_equity'])) if financials['total_equity'] else None
-
-            return {
-                'gross_margin': gross_margin,
-                'net_operating_margin': net_operating_margin,
-                'operating_leverage': operating_leverage,
-                'financial_leverage': financial_leverage
-            }
-        except Exception as e:
-            logging.error(f"Error calculating financial ratios: {e}")
-            return {
-                'gross_margin': None,
-                'net_operating_margin': None,
-                'operating_leverage': None,
-                'financial_leverage': None
-            }
 
     @staticmethod
     async def get_stock_criteria():
@@ -221,6 +204,29 @@ class StockDataFetcher:
         except Exception as e:
             logging.error(f"Error fetching stock criteria: {e}")
         return criteria
+
+    @staticmethod
+    async def calculate_ratios(financials):
+        try:
+            gross_margin = (Decimal(financials['gross_profit']) / Decimal(financials['cogs'])) if financials['cogs'] else None
+            net_operating_margin = (Decimal(financials['operating_income']) / Decimal(financials['total_assets'])) if financials['total_assets'] else None
+            operating_leverage = (Decimal(financials['ebit']) / Decimal(financials['operating_income'])) if financials['operating_income'] else None
+            financial_leverage = (Decimal(financials['total_assets']) / Decimal(financials['total_equity'])) if financials['total_equity'] else None
+
+            return {
+                'gross_margin': gross_margin,
+                'net_operating_margin': net_operating_margin,
+                'operating_leverage': operating_leverage,
+                'financial_leverage': financial_leverage
+            }
+        except Exception as e:
+            logging.error(f"Error calculating financial ratios: {e}")
+            return {
+                'gross_margin': None,
+                'net_operating_margin': None,
+                'operating_leverage': None,
+                'financial_leverage': None
+            }
 
 class RoboAdvisor:
     def __init__(self, portfolio):
