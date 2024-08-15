@@ -3,7 +3,7 @@ import numpy as np
 import random
 
 # Constants
-NUM_DAYS = 30
+NUM_DAYS = 365  # Simulate over a year
 MINUTES_PER_DAY = 24 * 60
 TOTAL_INTERVALS = NUM_DAYS * MINUTES_PER_DAY
 
@@ -19,7 +19,16 @@ VEHICLE_TYPES = {
     'Car': {'speed_factor': 1.0, 'volume_factor': 1.0},
     'Truck': {'speed_factor': 0.8, 'volume_factor': 0.2},
     'Bus': {'speed_factor': 0.6, 'volume_factor': 0.1},
+    'Autonomous Car': {'speed_factor': 1.1, 'volume_factor': 0.05},  # Autonomous vehicles
 }
+
+# Simulate dynamic traffic waves and congestion propagation
+def traffic_wave_effect(current_volume):
+    wave_prob = min(current_volume / 1000, 0.3)  # Higher probability of waves with higher volumes
+    if random.random() < wave_prob:
+        wave_strength = np.random.uniform(0.8, 1.2)  # Waves can either increase or decrease speed
+        return wave_strength
+    return 1.0
 
 # Time-of-day effects
 def time_of_day_effect(hour):
@@ -59,10 +68,10 @@ def special_event_effect(day):
     else:
         return 1.0, 0
 
-# Weather effects
+# Advanced weather effects
 def weather_effect():
-    weather_types = ['clear', 'rain', 'fog', 'snow', 'storm']
-    weather_pattern = np.random.choice(weather_types, p=[0.5, 0.2, 0.1, 0.1, 0.1])
+    weather_types = ['clear', 'rain', 'fog', 'snow', 'storm', 'localized snow']
+    weather_pattern = np.random.choice(weather_types, p=[0.5, 0.2, 0.1, 0.1, 0.05, 0.05])
     if weather_pattern == 'rain':
         return 0.8, np.random.randint(30, 180)  # Rain lasts 30 minutes to 3 hours
     elif weather_pattern == 'fog':
@@ -71,29 +80,34 @@ def weather_effect():
         return 0.6, np.random.randint(60, 240)  # Snow lasts 1 to 4 hours
     elif weather_pattern == 'storm':
         return 0.5, np.random.randint(60, 240)  # Storm lasts 1 to 4 hours
+    elif weather_pattern == ‘localized snow’:
+        return 0.7, np.random.randint(60, 120)  # Snow in specific segments
     else:
         return 1.0, 0  # Clear weather
 
 # Traffic incident effects
+
 def traffic_incident_effect():
     if random.random() < 0.05:  # 5% chance of an incident
-        severity = np.random.choice(['minor', 'major', 'severe'], p=[0.5, 0.3, 0.2])
-        if severity == 'minor':
+        severity = np.random.choice([‘minor’, ‘major’, ‘severe’], p=[0.5, 0.3, 0.2])
+        if severity == ‘minor’:
             return 0.85, np.random.randint(10, 30)  # Minor incident lasts 10-30 minutes
-        elif severity == 'major':
+        elif severity == ‘major’:
             return 0.7, np.random.randint(30, 60)  # Major incident lasts 30-60 minutes
         else:
             return 0.5, np.random.randint(60, 120)  # Severe incident lasts 1-2 hours
     else:
-        return 1.0, 0  # No incident
+    return 1.0, 0  # No incident
 
-# Generate synthetic traffic data
+# Generate sophisticated traffic data
+
 np.random.seed(42)
-timestamps = pd.date_range(start='2022-01-01', periods=TOTAL_INTERVALS, freq='T')
+timestamps = pd.date_range(start=‘2022-01-01’, periods=TOTAL_INTERVALS, freq=‘T’)
 
 data_records = []
 
 # Initialize conditions
+
 weather_multiplier, weather_duration = weather_effect()
 incident_multiplier, incident_duration = traffic_incident_effect()
 event_multiplier, event_duration = special_event_effect(0)
@@ -135,6 +149,11 @@ for i in range(TOTAL_INTERVALS):
 
             adjusted_volume = base_volume * tod_multiplier * dow_multiplier * season_multiplier * event_multiplier * incident_multiplier * np.random.uniform(0.95, 1.05) * vehicle_params['volume_factor']
             adjusted_speed = base_speed * tod_multiplier * dow_multiplier * season_multiplier * weather_multiplier * incident_multiplier * np.random.uniform(0.95, 1.05) * vehicle_params['speed_factor']
+
+            # Apply traffic wave effects
+            wave_multiplier = traffic_wave_effect(adjusted_volume)
+            adjusted_speed *= wave_multiplier
+
             adjusted_occupancy = base_occupancy * tod_multiplier * dow_multiplier * np.random.uniform(0.95, 1.05)
 
             data_records.append({
@@ -147,6 +166,7 @@ for i in range(TOTAL_INTERVALS):
             })
 
 # Create DataFrame and save to CSV
+
 data = pd.DataFrame(data_records)
-data.to_csv('data/historical_traffic_data.csv', index=False)
-print("Advanced synthetic traffic data generated and saved to 'data/historical_traffic_data.csv'")
+data.to_csv(‘data/historical_traffic_data.csv’, index=False)
+print(“Highly advanced synthetic traffic data generated and saved to ‘data/historical_traffic_data.csv’”)
