@@ -3,7 +3,7 @@ import numpy as np
 import random
 
 # Constants
-NUM_DAYS = 365  # Simulate over a year
+NUM_DAYS = 90  # Simulate over a year
 MINUTES_PER_DAY = 24 * 60
 TOTAL_INTERVALS = NUM_DAYS * MINUTES_PER_DAY
 
@@ -80,7 +80,7 @@ def weather_effect():
         return 0.6, np.random.randint(60, 240)  # Snow lasts 1 to 4 hours
     elif weather_pattern == 'storm':
         return 0.5, np.random.randint(60, 240)  # Storm lasts 1 to 4 hours
-    elif weather_pattern == ‘localized snow’:
+    elif weather_pattern == 'localized snow':
         return 0.7, np.random.randint(60, 120)  # Snow in specific segments
     else:
         return 1.0, 0  # Clear weather
@@ -89,20 +89,20 @@ def weather_effect():
 
 def traffic_incident_effect():
     if random.random() < 0.05:  # 5% chance of an incident
-        severity = np.random.choice([‘minor’, ‘major’, ‘severe’], p=[0.5, 0.3, 0.2])
-        if severity == ‘minor’:
+        severity = np.random.choice(['minor', 'major', 'severe'], p=[0.5, 0.3, 0.2])
+        if severity == 'minor':
             return 0.85, np.random.randint(10, 30)  # Minor incident lasts 10-30 minutes
-        elif severity == ‘major’:
+        elif severity == 'major':
             return 0.7, np.random.randint(30, 60)  # Major incident lasts 30-60 minutes
         else:
             return 0.5, np.random.randint(60, 120)  # Severe incident lasts 1-2 hours
     else:
-    return 1.0, 0  # No incident
+    	return 1.0, 0  # No incident
 
 # Generate sophisticated traffic data
 
 np.random.seed(42)
-timestamps = pd.date_range(start=‘2022-01-01’, periods=TOTAL_INTERVALS, freq=‘T’)
+timestamps = pd.date_range(start='2022-01-01', periods=TOTAL_INTERVALS, freq='T')
 
 data_records = []
 
@@ -168,5 +168,5 @@ for i in range(TOTAL_INTERVALS):
 # Create DataFrame and save to CSV
 
 data = pd.DataFrame(data_records)
-data.to_csv(‘data/historical_traffic_data.csv’, index=False)
-print(“Highly advanced synthetic traffic data generated and saved to ‘data/historical_traffic_data.csv’”)
+data.to_csv('data/historical_traffic_data.csv', index=False)
+print("Highly advanced synthetic traffic data generated and saved to 'data/historical_traffic_data.csv'")
