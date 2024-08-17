@@ -5,10 +5,9 @@ import logging
 from decimal import Decimal
 import csv
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
-import aiohttp
-import asyncio
+from tqdm import tqdm
 
 # Logging configuration
 logging.basicConfig(filename='robo_advisor.log', level=logging.INFO)
@@ -24,19 +23,13 @@ class Portfolio:
     def __init__(self, cash):
         self.cash = Decimal(cash)
         self.stocks = {}
-        self.initial_cash = Decimal(cash)
-
-    def portfolio_performance(self, stock_prices):
-        current_value = self.portfolio_value(stock_prices)
-        performance = (current_value - self.initial_cash) / self.initial_cash * Decimal('100')
-        logging.info(f"Portfolio Performance: {performance:.2f}%")
-        return performance
 
     def buy_stock(self, symbol, price, quantity):
         cost = price * quantity
         if self.cash >= cost:
             self.cash -= cost
             self.stocks[symbol] = self.stocks.get(symbol, 0) + quantity
+
             logging.info(f"Bought {quantity} shares of {symbol} at ${price:.2f} each.")
         else:
             logging.error("Insufficient funds to buy.")
@@ -79,7 +72,25 @@ class Portfolio:
 
 class StockDataFetcher:
     @staticmethod
-    def get_sp_components(url):
+    def get_sp500_components():
+        return StockDataFetcher._fetch_wiki_components(
+            'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+        )
+
+    @staticmethod
+    def get_sp400_components():
+        return StockDataFetcher._fetch_wiki_components(
+            'https://en.wikipedia.org/wiki/List_of_S%26P_400_companies'
+        )
+
+    @staticmethod
+    def get_sp600_components():
+        return StockDataFetcher._fetch_wiki_components(
+            'https://en.wikipedia.org/wiki/List_of_S%26P_600_companies'
+        )
+
+    @staticmethod
+    def _fetch_wiki_components(url):
         try:
             response = requests.get(url)
             if response.status_code == 200:
@@ -87,131 +98,65 @@ class StockDataFetcher:
                 table = soup.find('table', {'class': 'wikitable sortable'})
                 return [row.find_all('td')[0].text.strip() for row in table.find_all('tr')[1:]]
             else:
-                logging.error(f"Failed to fetch S&P component stocks from {url}. Status code: {response.status_code}")
+                logging.error(f"Failed to fetch component stocks from {url}. Status code: {response.status_code}")
                 return []
         except Exception as e:
-            logging.error(f"Error fetching S&P component stocks from {url}: {e}")
+            logging.error(f"Error fetching component stocks from {url}: {e}")
             return []
 
     @staticmethod
-    def get_sp500_components():
-        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
-        return StockDataFetcher.get_sp_components(url)
-
-    @staticmethod
-    def get_sp400_components():
-        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_400_companies'
-        return StockDataFetcher.get_sp_components(url)
-
-    @staticmethod
-    def get_sp600_components():
-        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_600_companies'
-        return StockDataFetcher.get_sp_components(url)
-    
-    @staticmethod
-    async def get_stock_prices(symbols):
-        stock_prices = {}
-        async with aiohttp.ClientSession() as session:
-            tasks = [StockDataFetcher.fetch_price(symbol, session) for symbol in symbols]
-            results = await asyncio.gather(*tasks)
-            stock_prices.update(dict(results))
-        return stock_prices
-    
-        @staticmethod
-    async def fetch_price(symbol, session):
-        url = f'https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}'
+    def fetch_price(symbol):
         try:
-            async with session.get(url) as response:
-                if response.status == 429:
-                    logging.error(f"Rate limit exceeded while fetching price for {symbol}.")
-                    return (symbol, Decimal('0'))
-                data = await response.json()
-                if 'quoteResponse' in data and 'result' in data['quoteResponse']:
-                    result = data['quoteResponse']['result'][0]
-                    latest_price = Decimal(result['regularMarketPrice'])
-                    return (symbol, latest_price)
-                else:
-                    logging.warning(f"No price data available for {symbol}.")
-                    return (symbol, Decimal('0'))
+            stock = yf.Ticker(symbol)
+            hist_data = stock.history(period="1d")
+            if not hist_data.empty:
+                latest_price = Decimal(hist_data['Close'].iloc[-1])
+                return symbol, latest_price
+            else:
+                logging.warning(f"No price data available for {symbol}.")
+                return symbol, Decimal('0')
         except Exception as e:
             logging.error(f"Error fetching stock price for {symbol}: {e}")
-            return (symbol, Decimal('0'))
+            return symbol, Decimal('0')
 
     @staticmethod
-    async def fetch_financials(symbol, session):
-        url = f'https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}'
-        try:
-            async with session.get(url) as response:
-                if response.status == 429:
-                    logging.error(f"Rate limit exceeded while fetching financials for {symbol}.")
-                    return None
-                data = await response.json()
-                if 'quoteResponse' in data and 'result' in data['quoteResponse']:
-                    result = data['quoteResponse']['result'][0]
-                    financials = {
-                        'cogs': result.get('costOfGoodsSold', None),
-                        'gross_profit': result.get('grossProfit', None),
-                        'ebit': result.get('ebit', None),
-                        'operating_income': result.get('operatingIncome', None),
-                        'total_assets': result.get('totalAssets', None),
-                        'total_debt': result.get('totalDebt', None),
-                        'total_equity': result.get('totalEquity', None),
-                        'market_cap': result.get('marketCap', None)
-                    }
-                    return financials
-                else:
-                    logging.warning(f"No financial data available for {symbol}.")
-                    return None
-        except Exception as e:
-            logging.error(f"Error fetching financial data for {symbol}: {e}")
-            return None
+    def get_stock_prices(symbols):
+        stock_prices = {}
+        max_workers = os.cpu_count() or 4  # Fallback to 1 if os.cpu_count() returns None
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = executor.map(StockDataFetcher.fetch_price, symbols)
+            stock_prices.update(results)
+        return stock_prices
 
     @staticmethod
-    async def get_stock_criteria():
-        criteria = {}
+    def get_financial_data(symbol):
         try:
-            SP500 = StockDataFetcher.get_sp500_components()
-            SP400 = StockDataFetcher.get_sp400_components()
-            SP600 = StockDataFetcher.get_sp600_components()
+            stock = yf.Ticker(symbol)
+            financials = stock.financials
+            balance_sheet = stock.balance_sheet
+            if financials.empty or balance_sheet.empty:
+                return None
 
-            symbols = SP500 + SP400 + SP600
-            async with aiohttp.ClientSession() as session:
-                tasks = [StockDataFetcher.fetch_financials(symbol, session) for symbol in symbols]
-                financial_data_list = await asyncio.gather(*tasks)
+            revenue = financials.loc['Total Revenue'].iloc[0]
+            # Attempt to get cost of revenue
+            cogs = financials.loc['Cost Of Revenue'].iloc[0] if 'Cost Of Revenue' in financials.index else None
+            gross_profit = financials.loc['Gross Profit'].iloc[0] if 'Gross Profit' in financials.index else None
 
-                for symbol, financial_data in zip(symbols, financial_data_list):
-                    if not financial_data:
-                        continue
+            # Estimate cost of revenue if it's missing
+            if cogs is None and gross_profit is not None:
+                cogs = revenue - gross_profit
+                logging.info(f"Estimated Cost of Revenue for {symbol}: {cogs}")
 
-                    market_cap = Decimal(financial_data.get("market_cap", None))
+            operating_income = financials.loc['Operating Income'].iloc[0]
+            ebit = financials.loc['EBIT'].iloc[0]
+            total_assets = balance_sheet.loc['Total Assets'].iloc[0]
+            total_debt = balance_sheet.loc['Total Debt'].iloc[0]
+            total_equity = balance_sheet.loc['Stockholders Equity'].iloc[0]
 
-                    if market_cap and market_cap > 10e9:
-                        info = yf.Ticker(symbol).info
-                        pe_ratio = info.get("forwardPE", None)
-                        dividend_yield = info.get("dividendYield", None)
-                        revenue_growth_rate = info.get("revenueGrowth", None)
-                        eps_growth_rate = info.get("earningsGrowth", None)
-
-                        if pe_ratio and 5 < pe_ratio < 15 and dividend_yield and dividend_yield > 0.03 and revenue_growth_rate and revenue_growth_rate > 0.05 and eps_growth_rate and eps_growth_rate > 0.05:
-                            criteria[symbol] = {
-                                'pe_ratio': pe_ratio,
-                                'dividend_yield': float(dividend_yield or 0),
-                                'revenue_growth_rate': revenue_growth_rate,
-                                'earnings_growth_rate': eps_growth_rate,
-                                **(await StockDataFetcher.calculate_ratios(financial_data) if financial_data else {})
-                            }
-                            logging.info(f"Criteria for {symbol}: {criteria[symbol]}")
-        except Exception as e:
-            logging.error(f"Error fetching stock criteria: {e}")
-        return criteria
-
-    @staticmethod
-    async def calculate_ratios(financials):
-        try:
-            gross_margin = (Decimal(financials['gross_profit']) / Decimal(financials['cogs'])) if financials['cogs'] else None
-            net_operating_margin = (Decimal(financials['operating_income']) / Decimal(financials['total_assets'])) if financials['total_assets'] else None
-            operating_leverage = (Decimal(financials['ebit']) / Decimal(financials['operating_income'])) if financials['operating_income'] else None
-            financial_leverage = (Decimal(financials['total_assets']) / Decimal(financials['total_equity'])) if financials['total_equity'] else None
+            gross_margin = (revenue - cogs) / revenue
+            net_operating_margin = operating_income / revenue
+            operating_leverage = ebit / operating_income
+            financial_leverage = total_assets / total_equity
 
             return {
                 'gross_margin': gross_margin,
@@ -220,25 +165,65 @@ class StockDataFetcher:
                 'financial_leverage': financial_leverage
             }
         except Exception as e:
-            logging.error(f"Error calculating financial ratios: {e}")
-            return {
-                'gross_margin': None,
-                'net_operating_margin': None,
-                'operating_leverage': None,
-                'financial_leverage': None
-            }
+            logging.error(f"Error fetching financial data for {symbol}: {e}")
+            return None
+
+    @staticmethod
+    def get_stock_criteria():
+        criteria = {}
+        try:
+            SP500 = StockDataFetcher.get_sp500_components()
+            SP400 = StockDataFetcher.get_sp400_components()
+            SP600 = StockDataFetcher.get_sp600_components()
+
+            symbols = SP500 + SP400 + SP600
+
+            def fetch_criteria_for_symbol(symbol):
+                stock = yf.Ticker(symbol)
+                info = stock.info
+                market_cap = info.get("marketCap", None)
+
+                if market_cap and market_cap > 10e9:
+                    pe_ratio = info.get("forwardPE", 0)
+                    dividend_yield = info.get("dividendYield", 0)
+                    revenue_growth_rate = info.get("revenueGrowth", 0)
+                    eps_growth_rate = info.get("earningsGrowth", 0)
+                    financial_data = StockDataFetcher.get_financial_data(symbol)
+
+                    if (pe_ratio and 5 < pe_ratio < 15 and
+                            dividend_yield and dividend_yield > 0.03 and
+                            revenue_growth_rate and revenue_growth_rate > 0.05 and
+                            eps_growth_rate and eps_growth_rate > 0.05):
+                        return symbol, {
+                            'pe_ratio': pe_ratio,
+                            'dividend_yield': float(dividend_yield or 0),
+                            'revenue_growth_rate': revenue_growth_rate,
+                            'earnings_growth_rate': eps_growth_rate,
+                            'market_cap': market_cap,
+                            'gross_margin': financial_data['gross_margin'] if financial_data else None,
+                            'net_operating_margin': financial_data['net_operating_margin'] if financial_data else None,
+                            'operating_leverage': financial_data['operating_leverage'] if financial_data else None,
+                            'financial_leverage': financial_data['financial_leverage'] if financial_data else None
+                        }
+                return None
+
+            max_workers = os.cpu_count() or 4
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(fetch_criteria_for_symbol, symbol): symbol for symbol in symbols}
+                for future in tqdm(as_completed(futures), total=len(futures), desc="Fetching stock criteria"):
+                    result = future.result()
+                    if result:
+                        symbol, data = result
+                        criteria[symbol] = data
+                        logging.info(f"Criteria for {symbol}: {criteria[symbol]}")
+
+        except Exception as e:
+            logging.error(f"Error fetching stock criteria: {e}")
+        return criteria
 
 class RoboAdvisor:
     def __init__(self, portfolio):
         self.portfolio = portfolio
-        
-    def adjust_allocation_based_on_market(self, market_condition):
-        if market_condition == 'bullish':
-            return {sector: weight + Decimal('0.05') for sector, weight in config['target_allocation'].items()}
-        elif market_condition == 'bearish':
-            return {sector: weight - Decimal('0.05') for sector, weight in config['target_allocation'].items()}
-        else:
-            return config['target_allocation']
 
     def adjust_portfolio(self, filename, target_allocation, market_condition):
         self.portfolio.import_portfolio_from_csv(filename)
@@ -246,8 +231,8 @@ class RoboAdvisor:
         bought_stocks = self.rebalance_portfolio(target_allocation_decimal, market_condition)
         return bought_stocks
 
-    async def rebalance_portfolio_async(self, target_allocation, market_condition):
-        criteria = await StockDataFetcher.get_stock_criteria()
+    def rebalance_portfolio(self, target_allocation, market_condition):
+        criteria = StockDataFetcher.get_stock_criteria()
         if not criteria:
             logging.error("No stock criteria available.")
             return {}
@@ -257,7 +242,7 @@ class RoboAdvisor:
             logging.error("No stocks picked based on criteria.")
             return {}
 
-        stock_prices = await StockDataFetcher.get_stock_prices(picked_stocks)
+        stock_prices = StockDataFetcher.get_stock_prices(picked_stocks)
         if not stock_prices:
             logging.error("Unable to rebalance portfolio.")
             return {}
@@ -269,7 +254,8 @@ class RoboAdvisor:
         bought_stocks = {}
         remaining_cash = self.portfolio.cash
 
-        max_investment_per_stock = total_value * Decimal('0.1')
+        # Increase max investment per stock to 15% of total portfolio value
+        max_investment_per_stock = total_value * Decimal('0.15')
 
         for symbol in picked_stocks:
             if symbol in stock_prices:
@@ -281,25 +267,28 @@ class RoboAdvisor:
 
                 if current_value < target_value:
                     additional_quantity = min(int((target_value - current_value) / stock_price_decimal),
-                                              int(criteria[symbol]['market_cap'] / stock_price_decimal))
-                    actual_quantity = min(additional_quantity, int(max_investment_per_stock / stock_price_decimal))
-                    actual_quantity = min(actual_quantity, int(remaining_cash / stock_price_decimal))
-                    if actual_quantity > 0:
-                        total_cost = actual_quantity * stock_price_decimal
+                                              int(max_investment_per_stock / stock_price_decimal),
+                                              int(remaining_cash / stock_price_decimal))
+
+                    if additional_quantity > 0:
+                        total_cost = additional_quantity * stock_price_decimal
                         if remaining_cash - total_cost >= Decimal('0'):
-                            self.portfolio.buy_stock(symbol, stock_prices[symbol], actual_quantity)
-                            bought_stocks[symbol] = actual_quantity
+                            self.portfolio.buy_stock(symbol, stock_prices[symbol], additional_quantity)
+                            bought_stocks[symbol] = additional_quantity
                             remaining_cash -= total_cost
 
+        # Reinvest remaining cash in underallocated stocks
         underallocated_stocks = [symbol for symbol in picked_stocks if symbol not in bought_stocks]
         if underallocated_stocks:
             remaining_cash_per_stock = remaining_cash / Decimal(len(underallocated_stocks))
             for symbol in underallocated_stocks:
                 stock_price_decimal = stock_prices[symbol]
-                additional_quantity = min(int(remaining_cash_per_stock / stock_price_decimal), 5)
+                additional_quantity = min(int(remaining_cash_per_stock / stock_price_decimal),
+                                          int(max_investment_per_stock / stock_price_decimal))
+
                 if additional_quantity > 0:
                     total_cost = additional_quantity * stock_price_decimal
-                    if remaining_cash_per_stock - total_cost >= Decimal('0'):
+                    if remaining_cash - total_cost >= Decimal('0'):
                         self.portfolio.buy_stock(symbol, stock_prices[symbol], additional_quantity)
                         bought_stocks[symbol] = additional_quantity
                         remaining_cash -= total_cost
@@ -317,9 +306,6 @@ class RoboAdvisor:
 
         self.portfolio.save_portfolio_to_csv('portfolio.csv', bought_stocks, criteria)
         return bought_stocks
-
-    def rebalance_portfolio(self, target_allocation, market_condition):
-        return asyncio.run(self.rebalance_portfolio_async(target_allocation, market_condition))
 
     def pick_stocks(self, criteria):
         return list(criteria.keys())
@@ -348,9 +334,10 @@ if __name__ == "__main__":
     robo_advisor = RoboAdvisor(initial_portfolio)
     target_allocation = config['target_allocation']
     market_condition = config['market_condition']
-    bought_stocks = robo_advisor.rebalance_portfolio(target_allocation[market_condition], market_condition)
+    bought_stocks = robo_advisor.adjust_portfolio('current_portfolio.csv', target_allocation[market_condition], market_condition)
 
     if bought_stocks:
         logging.info(f"Bought stocks: {bought_stocks}")
+        stock_prices = StockDataFetcher.get_stock_prices(bought_stocks.keys())
     else:
-            logging.error("No stocks were bought.")
+        logging.error("No stocks were bought.")
