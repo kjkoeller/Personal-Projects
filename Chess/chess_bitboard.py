@@ -60,7 +60,11 @@ class ChessBitboard:
         piece = self.get_piece_at(from_pos)
         if piece is None:
             return
-
+        
+        if self.is_occupied_by_opponent(to_pos, piece):
+            # remove opponent's piece
+            self.remove_piece(to_pos)
+        
         # Remove the piece from the board
         self.remove_piece(from_pos)
 
@@ -131,6 +135,15 @@ class ChessBitboard:
                 if self.is_occupied_by_opponent(to_pos, piece):
                     return True
             return False
+        
+        elif piece.upper() == 'N':
+            # Knight move validation
+            row_diff = abs(from_row - to_row)
+            col_diff = abs(from_col - to_col)
+            
+            if (row_diff == 2 and col_diff == 1) or (row_diff == 1 and col_diff == 2):
+                if self.is_empty(to_pos) or self.is_occupied_by_opponent(to_pos, piece):
+                    return True
 
         elif piece.upper() == 'R':
             # Rook move validation
