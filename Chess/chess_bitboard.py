@@ -2,6 +2,7 @@ class ChessBitboard:
     def __init__(self):
         self.init_bitboards()
         self.last_opponent_move = None  # Initialize last_opponent_move
+        self.move_history = []
 
     def init_bitboards(self):
         self.white_pawns = 0x00FF000000000000
@@ -81,8 +82,10 @@ class ChessBitboard:
         # Place the piece at the new position
         self.place_piece(to_pos, piece)
         
+        # checks whether the move leaves the king in check
         color = 'white' if piece.isupper() else 'black'
         if self.is_in_check(color):
+            # revert the move
             self.remove_piece(to_pos)
             self.place_piece(from_pos, piece)
             if original_piece is not None:
@@ -97,6 +100,16 @@ class ChessBitboard:
         self.update_occupied_bitboards()
         
         return True # move is valid
+    
+    def revert_move(self, from_pos, to_pos):
+        if not self.move_history:
+            return False
+        
+        last_board, last_from_pos, last_to_pos = self.move_history.pop()
+        
+        self.board = last_board
+        
+        return True
 
     def is_within_bounds(self, pos):
         """Check if a position is within the board bounds."""
@@ -374,16 +387,19 @@ class ChessBitboard:
         
         if opponent_piece.lower() == 'p':
             if self.is_opponent_pawn_two_square_move(opp_from_pos, opp_to_pos):
-                if piece.isupper():
-                    return from_pos[0] == 4 and to_pos[0] == 5 and abs(to_pos[1] - from_pos[1]) == 1 and to_pos[1] == opp_to_pos[1]
-                else:
-                    return from_pos[0] == 3 and to_pos[0] == 2 and abs(to_pos[1] - from_pos[1]) == 1 and to_pos[1] == opp_to_pos[1]
+                if piece.isupper(): # white pawn
+                    return start_row == 3 and end_row == 2 and abs(start_col - end_col) == 1 and opp_to_pos == (start_row, start_col)
+                else: # black pawn
+                    return start_row == 4 and end_row == 5 and abs(start_col - end_col) == 1 and opp_to_pos == (start_row, start_col)
         
         return False
     
     def is_opponent_pawn_two_square_move(self, opp_from_pos, opp_to_pos):
         """"Check to make sure the last opponent pawn move was two squares"""
-        return (opp_to_pos[0] == 6 and opp_to_pos[0] == 4) or (opp_from_pos[0] == 1 and opp_to_pos[1] == 3)
+        start_row, _ = opp_from_pos
+        end_row, _ = opp_to_pos
+        
+        return (start_row == 6 and end_row == 4) or (start_row == 1 and end_row == 3)
         
 
     def promote_pawn(self, position, color, promotion_piece):
