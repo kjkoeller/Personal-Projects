@@ -61,6 +61,16 @@ class ChessBitboard:
         if piece is None:
             return
         
+        if piece.lower() == 'p':
+            if self.en_passant_capture(from_pos, to_pos, piece):
+                if piece.islower():
+                    captured_pos = (to_pos[0]-1, to_pos[1])
+                else:
+                    captured_pos = (to_pos[0]+1, to_pos[1])
+                self.remove_piece(captured_pos)
+        
+        original_piece = self.get_piece_at(to_pos)
+        
         if self.is_occupied_by_opponent(to_pos, piece):
             # remove opponent's piece
             self.remove_piece(to_pos)
@@ -70,22 +80,23 @@ class ChessBitboard:
 
         # Place the piece at the new position
         self.place_piece(to_pos, piece)
-
-        # Check for en passant capture
-        if self.last_opponent_move:
-            if self.en_passant_capture(from_pos, to_pos, piece.lower()):
-                # Determine the captured pawn's position
-                captured_row = from_pos[0] + (1 if piece.lower() == 'p' else -1)
-                captured_pos = (captured_row, to_pos[1])
-
-                # Remove the captured pawn
-                self.remove_piece(captured_pos)
+        
+        color = 'white' if piece.isupper() else 'black'
+        if self.is_in_check(color):
+            self.remove_piece(to_pos)
+            self.place_piece(from_pos, piece)
+            if original_piece is not None:
+                self.place_piece(to_pos, original_piece)
+            print("\n\nMove is illegal: King is in Check!\n\n")
+            return False # invalid move, king would be in check
 
         # Update last opponent move
         self.last_opponent_move = (from_pos, to_pos)
 
         # Update bitboards
         self.update_occupied_bitboards()
+        
+        return True # move is valid
 
     def is_within_bounds(self, pos):
         """Check if a position is within the board bounds."""
@@ -118,23 +129,36 @@ class ChessBitboard:
     def is_legal_move(self, from_pos, to_pos, piece):
         if not self.is_within_bounds(from_pos) or not self.is_within_bounds(to_pos):
             return False
-
+        
         from_row, from_col = from_pos
         to_row, to_col = to_pos
 
         if piece.upper() == 'P':
             # Pawn move validation
-            direction = 1 if piece.islower() else -1
-            if from_col == to_col:
-                if self.is_empty(to_pos) and to_row == from_row + direction:
-                    return True
-                if (to_row == from_row + 2 * direction and from_row == (1 if piece.islower() else 6) and
-                        self.is_empty((from_row + direction, from_col)) and self.is_empty(to_pos)):
-                    return True
-            elif abs(from_col - to_col) == 1 and to_row == from_row + direction:
-                if self.is_occupied_by_opponent(to_pos, piece):
-                    return True
+            direction = -1 if piece.isupper() else 1 # white moves up (-1) and black moves down (1)
+            start_row = 6 if piece.isupper() else 1
+            
+            if to_pos[1] == from_pos[1]:
+                if self.get_piece_at(to_pos) is not None:
+                    return False # can't move forward if blocked
+                if from_pos[0] + direction == to_pos[0]:
+                    return True # one move forward
+                if from_pos[0] == start_row and from_pos[0] + 2 * direction == to_pos[0]:
+                    # two square movements
+                    intermediate_pos = (from_pos[0] + direction, from_pos[1])
+                    if self.get_piece_at(intermediate_pos) is None:
+                        return True
+            
+            if abs(to_pos[1] - from_pos[1]) == 1 and from_pos[0] + direction == to_pos[0]:
+                target_piece = self.get_piece_at(to_pos)
+                if target_piece is not None and self.is_occupied_by_opponent(to_pos, piece):
+                    return True # standard diagonal capture
+                
+                if self.en_passant_capture(from_pos, to_pos, piece):
+                    return True # en passant capture
+            
             return False
+                
         
         elif piece.upper() == 'N':
             # Knight move validation
@@ -215,7 +239,7 @@ class ChessBitboard:
         self.move_piece(from_pos, to_pos)
 
         # Check if the king is in check
-        king_pos = self.get_king_position(color)
+        # king_pos = self.get_king_position(color)
         in_check = self.is_in_check(color)
 
         # Revert the move
@@ -225,6 +249,32 @@ class ChessBitboard:
             self.place_piece(to_pos, target_piece)
 
         return in_check
+    
+    def is_in_check(self, color):
+        king_pos = self.find_king(color)
+        if not king_pos:
+            return False
+        
+        opponent_color = 'black' if color == 'white' else 'white'
+        for row in range(8):
+            for col in range(8):
+                piece = self.get_piece_at((row, col))
+                if piece and self.get_piece_color(piece) == opponent_color:
+                    if self.is_legal_move((row, col), king_pos, piece):
+                        return True # the king is in check
+        return False
+    
+    def find_king(self, color):
+        king_char = 'K' if color=='white' else 'k'
+        for row in range(8):
+            for col in range(8):
+                if self.get_piece_at((row, col)) == king_char:
+                    return (row, col)
+        return None
+    
+    def get_piece_color(self, piece):
+        return 'white' if piece.isupper() else 'black'
+        
 
     def get_pieces(self, color):
         """Get all pieces of the given color."""
@@ -309,6 +359,9 @@ class ChessBitboard:
 
     def en_passant_capture(self, from_pos, to_pos, piece):
         """Check if an en passant capture is possible."""
+        if piece.lower() != 'p':
+            return False
+        
         start_row, start_col = from_pos
         end_row, end_col = to_pos
 
@@ -316,29 +369,22 @@ class ChessBitboard:
             print("No last opponent move")
             return False
 
-        last_from_pos, last_to_pos = self.last_opponent_move
-        last_from_row, last_from_col = last_from_pos
-        last_to_row, last_to_col = last_to_pos
-
-        print(
-            f"Checking en passant: start=({start_row},{start_col}), end=({end_row},{end_col}), last_move_from=({last_from_row},{last_from_col}), last_move_to=({last_to_row},{last_to_col}), piece={piece}")
-
-        if piece == 'P':
-            # White pawn move
-            if last_from_row == 6 and last_to_row == 4 and last_from_col == start_col and end_row == 5 and abs(
-                    start_col - end_col) == 1:
-                print("En passant valid for white")
-                return True
-
-        elif piece == 'p':
-            # Black pawn move
-            if last_from_row == 1 and last_to_row == 3 and last_from_col == start_col and end_row == 2 and abs(
-                    start_col - end_col) == 1:
-                print("En passant valid for black")
-                return True
-
-        print("En passant not valid")
+        opp_from_pos, opp_to_pos = self.last_opponent_move
+        opponent_piece = self.get_piece_at(opp_to_pos)
+        
+        if opponent_piece.lower() == 'p':
+            if self.is_opponent_pawn_two_square_move(opp_from_pos, opp_to_pos):
+                if piece.isupper():
+                    return from_pos[0] == 4 and to_pos[0] == 5 and abs(to_pos[1] - from_pos[1]) == 1 and to_pos[1] == opp_to_pos[1]
+                else:
+                    return from_pos[0] == 3 and to_pos[0] == 2 and abs(to_pos[1] - from_pos[1]) == 1 and to_pos[1] == opp_to_pos[1]
+        
         return False
+    
+    def is_opponent_pawn_two_square_move(self, opp_from_pos, opp_to_pos):
+        """"Check to make sure the last opponent pawn move was two squares"""
+        return (opp_to_pos[0] == 6 and opp_to_pos[0] == 4) or (opp_from_pos[0] == 1 and opp_to_pos[1] == 3)
+        
 
     def promote_pawn(self, position, color, promotion_piece):
         """Promote a pawn to a new piece."""
